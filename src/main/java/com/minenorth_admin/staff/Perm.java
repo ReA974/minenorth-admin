@@ -18,6 +18,7 @@ public enum Perm {
     SECOURS_EDIT("Pompiers : nommer / grades"),
     ETAT_VIEW("État : voir"),
     ETAT_EDIT("État : impôt / maire / élections"),
+    ENTREPRISES("Entreprises : menu admin"),
     LOGS("Journal"),
     STAFF("Gérer le staff"),
     DELETE("Supprimer un joueur"),

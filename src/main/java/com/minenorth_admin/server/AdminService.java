@@ -50,6 +50,18 @@ public final class AdminService {
                     Result r = act.equals("etat") ? null : etatAction(actor, acc, m);
                     sendEtat(actor, r == null ? "" : r.message(), r == null || r.ok());
                 }
+                case "entreprises" -> {
+                    if (!acc.has(Perm.ENTREPRISES) || !Mods.entreprises()) {
+                        deny(actor);
+                        return;
+                    }
+                    try {
+                        Class.forName("fr.minenorth.entreprises.api.EntrepriseApi").getMethod("openAdmin", ServerPlayer.class).invoke(null, actor);
+                        AuditLog.log(actor, "", "entreprises", "ouvre le menu admin des entreprises");
+                    } catch (ReflectiveOperationException | LinkageError e) {
+                        Net.send(actor, new Net.View("message", new CompoundTag(), "Mets à jour le mod Entreprises (API admin absente).", false));
+                    }
+                }
                 case "staff", "role", "member" -> {
                     if (!acc.has(Perm.STAFF)) {
                         deny(actor);
@@ -109,6 +121,7 @@ public final class AdminService {
         t.putBoolean("Police", Mods.police());
         t.putBoolean("Secours", Mods.secours());
         t.putBoolean("Etat", Mods.etat());
+        t.putBoolean("Entreprises", Mods.entreprises());
         t.putBoolean("StaffMode", StaffMode.is(actor));
         // Liste triée sur le nom affiché (nom RP), joueurs connectés d'abord.
         java.util.List<CompoundTag> rows = new java.util.ArrayList<>();

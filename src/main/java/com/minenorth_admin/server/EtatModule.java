@@ -35,6 +35,10 @@ final class EtatModule {
         t.putLong("Balance", (Long) call("balance", S, s));
         t.putDouble("Tax", (Double) call("taxPercent", S, s));
         t.putDouble("TaxMax", (Double) call("taxMaxPercent", new Class<?>[0]));
+        t.putDouble("Wealth", (Double) call("wealthPercent", S, s));
+        t.putDouble("WealthMax", (Double) call("wealthMaxPercent", new Class<?>[0]));
+        t.putDouble("WealthFranchise", (Double) call("wealthFranchise", new Class<?>[0]));
+        t.putInt("WealthMinutes", (Integer) call("wealthMinutes", new Class<?>[0]));
         UUID mayor = (UUID) call("mayor", S, s);
         t.putString("Mayor", mayor == null ? "" : Players.display(s, mayor));
         t.putBoolean("Election", (Boolean) call("electionOpen", S, s));
@@ -92,6 +96,20 @@ final class EtatModule {
                 }
                 String msg = (String) call("setTaxPercent", new Class<?>[]{MinecraftServer.class, double.class}, s, p);
                 return msg.startsWith("L'impôt doit") ? Result.fail(msg) : Result.ok(msg, "fixe l'impôt à " + p + " %");
+            }
+            case "etat.wtax" -> {
+                double p;
+                try {
+                    p = Double.parseDouble(a.trim().replace(',', '.').replace("%", ""));
+                } catch (NumberFormatException e) {
+                    return Result.fail("Pourcentage invalide (ex. 1,5).");
+                }
+                String msg = (String) call("setWealthPercent", new Class<?>[]{MinecraftServer.class, double.class}, s, p);
+                return msg.startsWith("L'impôt doit") ? Result.fail(msg) : Result.ok(msg, "fixe l'impôt sur le compte à " + p + " %");
+            }
+            case "etat.wtaxreset" -> {
+                String msg = (String) call("resetWealthPercent", S, s);
+                return Result.ok(msg, "remet l'impôt sur le compte à la valeur de la config");
             }
             case "etat.taxreset" -> {
                 String msg = (String) call("resetTaxPercent", S, s);

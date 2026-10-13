@@ -26,6 +26,10 @@ public final class Mods {
         return ModList.get().isLoaded("minenorthetat");
     }
 
+    public static boolean entreprises() {
+        return ModList.get().isLoaded("minenorthentreprises");
+    }
+
     public static boolean secours() {
         return ModList.get().isLoaded("minenorthsecours");
     }

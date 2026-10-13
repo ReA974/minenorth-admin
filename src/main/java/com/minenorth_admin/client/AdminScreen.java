@@ -237,6 +237,10 @@ public class AdminScreen extends Screen {
                 rebuildWidgets();
             }).selected(tab == Tab.STAFF);
         }
+        if (has("ENTREPRISES") && home.getBoolean("Entreprises")) {
+            x -= 70;
+            btn(x, 9, 66, 14, "Entreprises", Btn.GHOST, () -> send("entreprises"));
+        }
         if (has("ETAT_VIEW") && home.getBoolean("Etat")) {
             x -= 44;
             btn(x, 9, 40, 14, "État", Btn.GHOST, () -> {
@@ -736,7 +740,7 @@ public class AdminScreen extends Screen {
     }
 
     private void initEtat() {
-        String[] pages = {"Général", "Trésor", "Salaires", "Agents"};
+        String[] pages = {"Général", "Trésor", "Salaires", "Agents", "Impôts"};
         for (int i = 0; i < pages.length; i++) {
             int idx = i;
             btn(8 + i * 64, 34, 60, 13, pages[i], Btn.DARK, () -> {
@@ -752,6 +756,7 @@ public class AdminScreen extends Screen {
             case 0 -> initEtatGeneral(edit);
             case 1 -> initEtatTreasury(edit);
             case 2 -> initEtatSalaries(edit);
+            case 4 -> initEtatWealth(edit);
             default -> initEtatAgents(edit);
         }
     }
@@ -781,6 +786,12 @@ public class AdminScreen extends Screen {
         btn(168, 183, 70, 16, "Clôturer", Btn.DARK, () -> send("etat.close")).enabled(edit && electionOn);
         btn(242, 183, 70, 16, "Annuler", Btn.RED, () -> confirmThen("elcancel", () -> send("etat.cancel")))
                 .enabled(edit && electionOn).selected(confirm.equals("elcancel"));
+    }
+
+    private void initEtatWealth(boolean edit) {
+        box("etatWealth", 8, 112, 80, "% (ex. 1,5)", 8);
+        btn(94, 111, 110, 16, "Fixer le taux", Btn.GREEN, () -> send("etat.wtax", null, in("etatWealth"), "", 0)).enabled(edit && !in("etatWealth").isEmpty());
+        btn(208, 111, 120, 16, "Valeur de la config", Btn.DARK, () -> send("etat.wtaxreset")).enabled(edit);
     }
 
     private void initEtatTreasury(boolean edit) {
@@ -851,6 +862,13 @@ public class AdminScreen extends Screen {
                 text(g, "Dernières opérations (" + led.size() + ")", 8, 104, DIM);
                 for (int i = 0; i < Math.min(10, led.size()); i++) textFit(g, led.getString(i), 8, 116 + i * 11, 384, TEXT);
                 if (led.isEmpty()) text(g, "Aucune opération pour le moment.", 8, 116, DIM);
+            }
+            case 4 -> {
+                text(g, "Impôt sur le compte des joueurs connectés : " + num(etat.getDouble("Wealth")) + " %", 8, 54, WHITE);
+                text(g, "Prélevé toutes les " + etat.getInt("WealthMinutes") + " min sur ce qui dépasse " + eur(etat.getDouble("WealthFranchise")) + ", versé au trésor.", 8, 65, TEXT);
+                text(g, "Plafond du maire : " + num(etat.getDouble("WealthMax")) + " % (toi, tu n'as pas de plafond). Franchise et délai : config.", 8, 76, DIM);
+                text(g, "Taux de l'impôt sur le compte (0 = désactivé)", 8, 101, DIM);
+                if (!has("ETAT_EDIT")) text(g, "Lecture seule (pas de droit de modification).", 8, 208, DIM);
             }
             case 2 -> {
                 text(g, "Clique un poste puis fixe son salaire (par paie, sans plafond pour toi).", 8, 40 + 0, DIM);
