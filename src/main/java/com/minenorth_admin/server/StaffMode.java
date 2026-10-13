@@ -1,6 +1,7 @@
 package com.minenorth_admin.server;
 
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -11,7 +12,9 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
- * Mode staff : invisible (sans particules) + créatif. L'état est stocké dans les données persistantes du joueur
+ * Mode staff : invisible (sans particules) + créatif. L'effet d'invisibilité seul laisse voir l'armure et un contour translucide pour certains
+ * joueurs ; en plus, le joueur est retiré de l'écran des autres joueurs (hors mode staff) : ils ne reçoivent plus son entité du tout.
+ * Ancienne description : L'état est stocké dans les données persistantes du joueur
  * (survit à la déconnexion, à la mort et au milk). Quitter le mode restaure le mode de jeu d'avant.
  */
 public final class StaffMode {
@@ -41,6 +44,7 @@ public final class StaffMode {
             GameType prev = GameType.byId(d.contains(PREV) ? d.getInt(PREV) : GameType.SURVIVAL.getId());
             p.setGameMode(prev == GameType.SPECTATOR ? GameType.SURVIVAL : prev);
             d.remove(PREV);
+            retrack(p);
             return false;
         }
         GameType cur = p.gameMode.getGameModeForPlayer();
@@ -48,7 +52,24 @@ public final class StaffMode {
         d.putBoolean(ON, true);
         p.setGameMode(GameType.CREATIVE);
         applyVanish(p);
+        retrack(p);
         return true;
+    }
+
+    /** Refait le suivi du joueur par les autres : ils le perdent puis le revoient (ou non, selon le mode), et l'événement ci-dessous décide qui le voit. */
+    private static void retrack(ServerPlayer p) {
+        var cache = p.serverLevel().getChunkSource();
+        cache.removeEntity(p);
+        cache.addEntity(p);
+    }
+
+    /** Un joueur qui commence à suivre un membre du staff en mode staff le perd aussitôt de vue (sauf s'il est lui-même en mode staff). */
+    @SubscribeEvent
+    public void onStartTracking(PlayerEvent.StartTracking e) {
+        if (e.getTarget() instanceof ServerPlayer staff && e.getEntity() instanceof ServerPlayer viewer && staff != viewer
+                && is(staff) && !is(viewer)) {
+            viewer.connection.send(new ClientboundRemoveEntitiesPacket(staff.getId()));
+        }
     }
 
     @SubscribeEvent
