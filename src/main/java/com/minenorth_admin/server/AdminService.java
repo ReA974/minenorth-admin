@@ -56,7 +56,13 @@ public final class AdminService {
                         return;
                     }
                     try {
-                        Class.forName("fr.minenorth.entreprises.api.EntrepriseApi").getMethod("openAdmin", ServerPlayer.class).invoke(null, actor);
+                        Class<?> api = Class.forName("fr.minenorth.entreprises.api.EntrepriseApi");
+                        try {
+                            // Version récente : le droit « modifier la banque » ouvre l'ajustement des soldes d'entreprise.
+                            api.getMethod("openAdmin", ServerPlayer.class, boolean.class).invoke(null, actor, acc.has(Perm.BANK_EDIT));
+                        } catch (NoSuchMethodException old) {
+                            api.getMethod("openAdmin", ServerPlayer.class).invoke(null, actor);
+                        }
                         AuditLog.log(actor, "", "entreprises", "ouvre le menu admin des entreprises");
                     } catch (ReflectiveOperationException | LinkageError e) {
                         Net.send(actor, new Net.View("message", new CompoundTag(), "Mets à jour le mod Entreprises (API admin absente).", false));
