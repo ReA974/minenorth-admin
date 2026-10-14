@@ -25,6 +25,7 @@ ou le pseudo.
   - Pompiers (si MineNorth Secours est installé) : nommer un joueur pompier (choix du grade : Chef des secours, Médecin, Secouriste),
     changer son grade, le retirer (hors ligne aussi) et lui donner la tablette (connecté). Permissions « Pompiers : voir » et
     « Pompiers : nommer / grades ». Nécessite le mod Secours à jour (nouvelle API `SecoursApi`).
+  - Grade (si le mod MineNorth VIP est installé) : voir le grade d'un joueur, lui en donner un (durée en jours, vide = permanent), le changer, le renouveler ou le retirer, hors ligne aussi. Permissions « Grades VIP : voir » et « Grades VIP : donner / retirer » (donnée au rôle Gérant à la mise à jour).
   - Inventaire + ender chest : copier, prendre, supprimer, tout vider, donner l'objet en main. Hors ligne : modifie le fichier `playerdata`.
 - **État** (onglet en haut, si MineNorth État est installé) : solde du trésor, impôt sur les achats (fixer ou revenir à la valeur de la config),
   maire (nommer / retirer), ouvrir / clôturer / annuler une élection. Permissions « État : voir » et « État : impôt / maire / élections ».

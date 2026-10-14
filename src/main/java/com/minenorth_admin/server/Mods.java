@@ -30,6 +30,10 @@ public final class Mods {
         return ModList.get().isLoaded("minenorthentreprises");
     }
 
+    public static boolean grades() {
+        return ModList.get().isLoaded("minenorthvip");
+    }
+
     public static boolean secours() {
         return ModList.get().isLoaded("minenorthsecours");
     }

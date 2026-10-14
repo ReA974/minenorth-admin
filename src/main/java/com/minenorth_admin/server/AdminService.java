@@ -90,7 +90,7 @@ public final class AdminService {
                     if (r.ok()) sendHome(actor, Access.of(actor), false, r.message());
                     else sendPlayer(actor, acc, m.target(), m.b(), r.message(), false);
                 }
-                case "bank", "permis", "garage", "police", "secours", "inv", "tp", "mod" -> {
+                case "bank", "permis", "garage", "police", "secours", "grade", "inv", "tp", "mod" -> {
                     Result r = playerAction(actor, acc, module, m);
                     String section = switch (module) {
                         case "tp" -> m.b().isEmpty() ? "bank" : m.b();
@@ -126,6 +126,7 @@ public final class AdminService {
         t.putBoolean("Garage", Mods.garage());
         t.putBoolean("Police", Mods.police());
         t.putBoolean("Secours", Mods.secours());
+        t.putBoolean("Grades", Mods.grades());
         t.putBoolean("Etat", Mods.etat());
         t.putBoolean("Entreprises", Mods.entreprises());
         t.putBoolean("StaffMode", StaffMode.is(actor));
@@ -156,6 +157,7 @@ public final class AdminService {
             case "garage" -> acc.has(Perm.GARAGE_VIEW) && Mods.garage();
             case "police" -> acc.has(Perm.POLICE_VIEW) && Mods.police();
             case "secours" -> acc.has(Perm.SECOURS_VIEW) && Mods.secours();
+            case "grade" -> acc.has(Perm.GRADE_VIEW) && Mods.grades();
             case "inv" -> acc.has(Perm.INV_VIEW);
             case "mod" -> acc.has(Perm.MODERATE);
             default -> false;
@@ -187,6 +189,7 @@ public final class AdminService {
                 case "garage" -> GarageModule.view(s, id);
                 case "police" -> PoliceModule.view(s, id);
                 case "secours" -> SecoursModule.view(s, id);
+                case "grade" -> GradeModule.view(s, id);
                 case "mod" -> ModModule.view(s, id);
                 default -> InvModule.view(s, id);
             };
@@ -205,6 +208,7 @@ public final class AdminService {
             case "garage" -> Perm.GARAGE_EDIT;
             case "police" -> Perm.POLICE_EDIT;
             case "secours" -> Perm.SECOURS_EDIT;
+            case "grade" -> Perm.GRADE_EDIT;
             case "inv" -> Perm.INV_EDIT;
             case "mod" -> Perm.MODERATE;
             default -> Perm.TELEPORT;
@@ -221,6 +225,7 @@ public final class AdminService {
             case "garage" -> Mods.garage() ? GarageModule.act(actor, id, m.action(), m.a(), m.b(), m.n()) : Result.fail("Le mod garage n'est pas installé.");
             case "police" -> Mods.police() ? PoliceModule.act(actor, id, m.action(), m.n()) : Result.fail("Le mod Police n'est pas installé.");
             case "secours" -> Mods.secours() ? SecoursModule.act(actor, id, m.action(), m.n()) : Result.fail("Le mod Secours n'est pas installé.");
+            case "grade" -> Mods.grades() ? GradeModule.act(actor, id, m.action(), m.a(), m.n()) : Result.fail("Le mod VIP n'est pas installé.");
             case "inv" -> InvModule.act(actor, id, m.action(), m.a(), m.b(), m.n());
             case "mod" -> ModModule.act(actor, id, m.action(), m.a(), m.n());
             default -> teleport(actor, id, m.action());
@@ -281,6 +286,7 @@ public final class AdminService {
         if (Mods.permis() && PermisModule.wipe(s, id)) done.add("permis");
         if (Mods.garage() && GarageModule.wipe(s, id)) done.add("garage");
         if (Mods.police() && PoliceModule.wipe(s, id)) done.add("police");
+        if (Mods.grades() && GradeModule.wipe(s, id)) done.add("grade");
         if (StaffData.get(s).removeMember(id)) done.add("rôle staff");
         // Les autres mods (identité, secours, entreprises, accueil, portes…) nettoient eux-mêmes via MineNorth API.
         fr.minenorth.api.PlayerWipeEvent wipe = new fr.minenorth.api.PlayerWipeEvent(s, id, name);

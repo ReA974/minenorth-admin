@@ -16,6 +16,8 @@ public enum Perm {
     POLICE_EDIT("Police : ajouter / retirer / grades"),
     SECOURS_VIEW("Pompiers : voir"),
     SECOURS_EDIT("Pompiers : nommer / grades"),
+    GRADE_VIEW("Grades VIP : voir"),
+    GRADE_EDIT("Grades VIP : donner / retirer"),
     ETAT_VIEW("État : voir"),
     ETAT_EDIT("État : impôt / maire / élections"),
     ENTREPRISES("Entreprises : menu admin"),

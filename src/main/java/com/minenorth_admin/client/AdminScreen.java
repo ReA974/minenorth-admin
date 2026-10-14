@@ -57,6 +57,7 @@ public class AdminScreen extends Screen {
     private String section = "";
     private int listOffset;
     private int permisSel = -1, permisOffset;
+    private int gradeSel = -1, gradeOffset;
     /** 0 = garage, 1 = fourrière, 2 = plaques (fichier des immatriculations). */
     private int garageMode;
 
@@ -121,6 +122,7 @@ public class AdminScreen extends Screen {
                 String newSection = d.getString("Section");
                 if (!newSection.equals(section)) {
                     permisSel = -1;
+                    gradeSel = -1;
                     garageSel = -1;
                     invSel = -1;
                 }
@@ -142,8 +144,8 @@ public class AdminScreen extends Screen {
     }
 
     private void resetSelections() {
-        permisSel = garageSel = invSel = -1;
-        permisOffset = garageOffset = policeOffset = secoursOffset = 0;
+        permisSel = garageSel = invSel = gradeSel = -1;
+        permisOffset = garageOffset = policeOffset = secoursOffset = gradeOffset = 0;
         confirm = "";
     }
 
@@ -292,6 +294,7 @@ public class AdminScreen extends Screen {
         if (home.getBoolean("Garage") && has("GARAGE_VIEW")) s.add("garage");
         if (home.getBoolean("Police") && has("POLICE_VIEW")) s.add("police");
         if (home.getBoolean("Secours") && has("SECOURS_VIEW")) s.add("secours");
+        if (home.getBoolean("Grades") && has("GRADE_VIEW")) s.add("grade");
         if (has("INV_VIEW")) s.add("inv");
         if (has("MODERATE")) s.add("mod");
         return s;
@@ -304,6 +307,7 @@ public class AdminScreen extends Screen {
             case "garage" -> "Garage";
             case "police" -> "Police";
             case "secours" -> "Pompiers";
+            case "grade" -> "Grade";
             case "mod" -> "Sanctions";
             default -> "Inventaire";
         };
@@ -343,7 +347,8 @@ public class AdminScreen extends Screen {
         int tabW = secs.isEmpty() ? 64 : Math.min(64, (RW + 3) / secs.size() - 3);
         for (String s : secs) {
             String label = sectionLabel(s);
-            if (font.width(label) > tabW - 4) label = s.equals("inv") ? "Inv." : s.equals("mod") ? "Sanc." : s.equals("secours") ? "Pomp." : label;
+            if (font.width(label) > tabW - 4) label = s.equals("inv") ? "Inv." : s.equals("mod") ? "Sanc." : s.equals("secours") ? "Pomp."
+                    : s.equals("grade") ? "Grd." : s.equals("police") ? "Pol." : s.equals("garage") ? "Gar." : s.equals("permis") ? "Perm." : s.equals("bank") ? "Banq." : label;
             btn(x, 60, tabW, 14, label, Btn.DARK, () -> {
                 confirm = "";
                 openPlayer(selected, s);
@@ -358,6 +363,7 @@ public class AdminScreen extends Screen {
             case "garage" -> initGarage(data);
             case "police" -> initPolice(data);
             case "secours" -> initSecours(data);
+            case "grade" -> initGrade(data);
             case "inv" -> initInv(data);
             case "mod" -> initMod(data);
             default -> {}
@@ -925,6 +931,7 @@ public class AdminScreen extends Screen {
                     if (section.equals("permis")) permisOffset = clamp(permisOffset + d, data.getList("Licences", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("police")) policeOffset = clamp(policeOffset + d, data.getList("Officers", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("secours")) secoursOffset = clamp(secoursOffset + d, data.getList("Members", Tag.TAG_COMPOUND).size() - LIST_ROWS);
+                    if (section.equals("grade")) gradeOffset = clamp(gradeOffset + d, data.getList("Grades", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("garage")) garageOffset = clamp(garageOffset + d,
                             data.getList(garageKey(), Tag.TAG_COMPOUND).size() - LIST_ROWS);
                 }
@@ -971,6 +978,17 @@ public class AdminScreen extends Screen {
                         int idx = permisOffset + i;
                         if (idx < n && inRow(mx, my, RX, LIST_Y + i * LIST_ROW, RW - 14, LIST_ROW)) {
                             permisSel = idx;
+                            confirm = "";
+                            rebuildWidgets();
+                            return true;
+                        }
+                    }
+                } else if (section.equals("grade")) {
+                    int n = data.getList("Grades", Tag.TAG_COMPOUND).size();
+                    for (int i = 0; i < LIST_ROWS; i++) {
+                        int idx = gradeOffset + i;
+                        if (idx < n && inRow(mx, my, RX, LIST_Y + i * LIST_ROW, RW - 14, LIST_ROW)) {
+                            gradeSel = idx;
                             confirm = "";
                             rebuildWidgets();
                             return true;
@@ -1152,6 +1170,10 @@ public class AdminScreen extends Screen {
                 renderSecours(g, d, mx, my);
                 yield null;
             }
+            case "grade" -> {
+                renderGrade(g, d, mx, my);
+                yield null;
+            }
             case "inv" -> renderInv(g, d, mx, my);
             case "mod" -> {
                 renderMod(g, d);
@@ -1276,6 +1298,52 @@ public class AdminScreen extends Screen {
         }
         text(g, "Ban temporaire : indique une durée. Ban définitif : sans durée.", RX, 172, DIM);
         if (!has("MODERATE")) text(g, "Pas de droit de sanction.", RX, 186, DIM);
+    }
+
+    // ------------------------------------------------------------------ grade (mod VIP)
+
+    private void initGrade(CompoundTag d) {
+        boolean edit = has("GRADE_EDIT");
+        ListTag list = d.getList("Grades", Tag.TAG_COMPOUND);
+        int max = Math.max(0, list.size() - LIST_ROWS);
+        listScroll(list.size(), () -> gradeOffset = Math.max(0, gradeOffset - 1), () -> gradeOffset = Math.min(max, gradeOffset + 1),
+                gradeOffset > 0, gradeOffset < max);
+        boolean sel = gradeSel >= 0 && gradeSel < list.size();
+        String id = sel ? list.getCompound(gradeSel).getString("Id") : "";
+        boolean hasIt = sel && list.getCompound(gradeSel).getBoolean("Has");
+        boolean any = !d.getString("Current").isEmpty();
+        box("days", RX, 192, 40, "Jours", 5);
+        btn(RX + 44, 191, 84, 16, hasIt ? "Renouveler" : any ? "Changer" : "Donner", Btn.GREEN, () -> {
+            String v = in("days");
+            long days;
+            try {
+                days = v.isEmpty() ? 0 : Long.parseLong(v);
+            } catch (NumberFormatException e) {
+                message = "Durée invalide (nombre de jours, vide = permanent).";
+                messageOk = false;
+                return;
+            }
+            send("grade.give", selected, id, "", days);
+        }).enabled(edit && sel);
+        btn(RX + 132, 191, 70, 16, "Retirer", Btn.RED, () -> confirmThen("gradeRemove", () -> send("grade.remove", selected, "", "", 0)))
+                .enabled(edit && any).selected(confirm.equals("gradeRemove"));
+    }
+
+    private void renderGrade(GuiGraphics g, CompoundTag d, int mx, int my) {
+        ListTag list = d.getList("Grades", Tag.TAG_COMPOUND);
+        String cur = d.getString("Current");
+        String curName = "";
+        for (int i = 0; i < list.size(); i++) if (list.getCompound(i).getString("Id").equalsIgnoreCase(cur)) curName = list.getCompound(i).getString("Name");
+        text(g, cur.isEmpty() ? "Aucun grade" : "Grade : " + curName + " (" + d.getString("Until") + ")", RX, 79, cur.isEmpty() ? DIM : OK);
+        gradeOffset = clamp(gradeOffset, list.size() - LIST_ROWS);
+        renderList(g, mx, my, list.size(), gradeOffset, gradeSel, i -> {
+            CompoundTag c = list.getCompound(i);
+            boolean has = c.getBoolean("Has");
+            return new String[]{c.getString("Name"), has ? "✔ " + c.getString("Until") : "", "FF5FE0A0"};
+        });
+        if (list.isEmpty()) text(g, "Aucun grade dans la config du mod VIP.", RX + 4, LIST_Y + 3, DIM);
+        textFit(g, "Jours : vide = permanent.", RX, 211, 172, DIM);
+        if (!has("GRADE_EDIT")) text(g, "Lecture seule (pas de droit de modification).", RX, 228, DIM);
     }
 
     private void initPolice(CompoundTag d) {
