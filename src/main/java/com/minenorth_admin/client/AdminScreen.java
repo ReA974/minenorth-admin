@@ -798,6 +798,9 @@ public class AdminScreen extends Screen {
         box("etatWealth", 8, 112, 80, "% (ex. 1,5)", 8);
         btn(94, 111, 110, 16, "Fixer le taux", Btn.GREEN, () -> send("etat.wtax", null, in("etatWealth"), "", 0)).enabled(edit && !in("etatWealth").isEmpty());
         btn(208, 111, 120, 16, "Valeur de la config", Btn.DARK, () -> send("etat.wtaxreset")).enabled(edit);
+        box("etatSalTax", 8, 166, 80, "% (ex. 5)", 8);
+        btn(94, 165, 110, 16, "Fixer le taux", Btn.GREEN, () -> send("etat.stax", null, in("etatSalTax"), "", 0)).enabled(edit && !in("etatSalTax").isEmpty());
+        btn(208, 165, 120, 16, "Valeur de la config", Btn.DARK, () -> send("etat.staxreset")).enabled(edit);
     }
 
     private void initEtatTreasury(boolean edit) {
@@ -874,6 +877,9 @@ public class AdminScreen extends Screen {
                 text(g, "Prélevé toutes les " + etat.getInt("WealthMinutes") + " min sur ce qui dépasse " + eur(etat.getDouble("WealthFranchise")) + ", versé au trésor.", 8, 65, TEXT);
                 text(g, "Plafond du maire : " + num(etat.getDouble("WealthMax")) + " % (toi, tu n'as pas de plafond). Franchise et délai : config.", 8, 76, DIM);
                 text(g, "Taux de l'impôt sur le compte (0 = désactivé)", 8, 101, DIM);
+                text(g, "Impôt sur le salaire : " + num(etat.getDouble("SalaryTax")) + " %", 8, 134, WHITE);
+                text(g, "Retenu sur chaque salaire reçu (État et entreprises), versé au trésor. 0 = désactivé.", 8, 145, TEXT);
+                text(g, "Taux de l'impôt sur le salaire", 8, 155, DIM);
                 if (!has("ETAT_EDIT")) text(g, "Lecture seule (pas de droit de modification).", 8, 208, DIM);
             }
             case 2 -> {

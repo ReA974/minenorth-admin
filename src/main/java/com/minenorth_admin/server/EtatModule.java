@@ -36,6 +36,7 @@ final class EtatModule {
         t.putDouble("Tax", (Double) call("taxPercent", S, s));
         t.putDouble("TaxMax", (Double) call("taxMaxPercent", new Class<?>[0]));
         t.putDouble("Wealth", (Double) call("wealthPercent", S, s));
+        t.putDouble("SalaryTax", (Double) call("salaryTaxPercent", S, s));
         t.putDouble("WealthMax", (Double) call("wealthMaxPercent", new Class<?>[0]));
         t.putDouble("WealthFranchise", (Double) call("wealthFranchise", new Class<?>[0]));
         t.putInt("WealthMinutes", (Integer) call("wealthMinutes", new Class<?>[0]));
@@ -106,6 +107,20 @@ final class EtatModule {
                 }
                 String msg = (String) call("setWealthPercent", new Class<?>[]{MinecraftServer.class, double.class}, s, p);
                 return msg.startsWith("L'impôt doit") ? Result.fail(msg) : Result.ok(msg, "fixe l'impôt sur le compte à " + p + " %");
+            }
+            case "etat.stax" -> {
+                double p;
+                try {
+                    p = Double.parseDouble(a.trim().replace(',', '.').replace("%", ""));
+                } catch (NumberFormatException e) {
+                    return Result.fail("Pourcentage invalide (ex. 5).");
+                }
+                String msg = (String) call("setSalaryTaxPercent", new Class<?>[]{MinecraftServer.class, double.class}, s, p);
+                return msg.startsWith("L'impôt doit") ? Result.fail(msg) : Result.ok(msg, "fixe l'impôt sur le salaire à " + p + " %");
+            }
+            case "etat.staxreset" -> {
+                String msg = (String) call("resetSalaryTaxPercent", S, s);
+                return Result.ok(msg, "remet l'impôt sur le salaire à la valeur de la config");
             }
             case "etat.wtaxreset" -> {
                 String msg = (String) call("resetWealthPercent", S, s);
