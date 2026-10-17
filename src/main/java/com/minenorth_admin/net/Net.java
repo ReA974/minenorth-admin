@@ -32,8 +32,8 @@ public final class Net {
 
     public static void register() {
         int id = 0;
-        CHANNEL.registerMessage(id++, Req.class, Req::encode, Req::decode, Req::handle);
-        CHANNEL.registerMessage(id++, View.class, View::encode, View::decode, View::handle);
+        CHANNEL.registerMessage(id++, Req.class, Req::encode, Req::decode, Req::handle, java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_SERVER));
+        CHANNEL.registerMessage(id++, View.class, View::encode, View::decode, View::handle, java.util.Optional.of(net.minecraftforge.network.NetworkDirection.PLAY_TO_CLIENT));
     }
 
     public static void send(ServerPlayer p, View v) {
