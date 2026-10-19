@@ -769,9 +769,6 @@ public class AdminScreen extends Screen {
 
     private void initEtatGeneral(boolean edit) {
         boolean electionOn = etat.getBoolean("Election");
-        box("etatTax", 8, 112, 80, "% (ex. 2,5)", 8);
-        btn(94, 111, 110, 16, "Fixer l'impôt", Btn.GREEN, () -> send("etat.tax", null, in("etatTax"), "", 0)).enabled(edit && !in("etatTax").isEmpty());
-        btn(208, 111, 120, 16, "Valeur de la config", Btn.DARK, () -> send("etat.taxreset")).enabled(edit);
         box("etatMayor", 8, 148, 150, "Pseudo ou nom RP", 32);
         btn(162, 147, 100, 16, "Nommer maire", Btn.GREEN, () -> send("etat.mayor", null, in("etatMayor"), "", 0)).enabled(edit && !in("etatMayor").isEmpty());
         btn(266, 147, 120, 16, "Retirer le maire", Btn.RED, () -> confirmThen("nomayor", () -> send("etat.nomayor")))
@@ -856,10 +853,8 @@ public class AdminScreen extends Screen {
         switch (etatPage) {
             case 0 -> {
                 text(g, "Trésor : " + eur(etat.getLong("Balance") / 100.0), 8, 54, WHITE);
-                text(g, "Impôt sur chaque achat : " + num(etat.getDouble("Tax")) + " %  (plafond du maire : " + num(etat.getDouble("TaxMax")) + " %)", 8, 65, TEXT);
                 text(g, mayor.isEmpty() ? "Maire : personne" : "Maire : " + mayor + (etat.getBoolean("Locked") ? "  (pouvoirs suspendus)" : ""), 8, 76, mayor.isEmpty() ? DIM : OK);
                 text(g, "Élection : " + (etat.getBoolean("Election") ? "en cours" : "aucune") + " · Agents municipaux : " + etat.getInt("Agents"), 8, 87, DIM);
-                text(g, "Impôt (part de chaque achat versée au trésor)", 8, 101, DIM);
                 text(g, "Maire (remplace l'actuel, ses agents sont révoqués)", 8, 137, DIM);
                 text(g, "Élection (durée en minutes)", 8, 173, DIM);
                 if (!has("ETAT_EDIT")) text(g, "Lecture seule (pas de droit de modification).", 8, 208, DIM);

@@ -33,8 +33,6 @@ final class EtatModule {
     static CompoundTag view(MinecraftServer s) {
         CompoundTag t = new CompoundTag();
         t.putLong("Balance", (Long) call("balance", S, s));
-        t.putDouble("Tax", (Double) call("taxPercent", S, s));
-        t.putDouble("TaxMax", (Double) call("taxMaxPercent", new Class<?>[0]));
         t.putDouble("Wealth", (Double) call("wealthPercent", S, s));
         t.putDouble("SalaryTax", (Double) call("salaryTaxPercent", S, s));
         t.putDouble("WealthMax", (Double) call("wealthMaxPercent", new Class<?>[0]));
@@ -84,20 +82,10 @@ final class EtatModule {
         return t;
     }
 
-    /** etat.tax (a = pourcentage), etat.taxreset, etat.mayor (a = pseudo ou nom), etat.nomayor, etat.open (n = minutes, 0 = config), etat.close, etat.cancel. */
+    /** etat.mayor (a = pseudo ou nom), etat.nomayor, etat.open (n = minutes, 0 = config), etat.close, etat.cancel. */
     static Result act(ServerPlayer actor, String action, String a, String b, long n) {
         MinecraftServer s = actor.server;
         switch (action) {
-            case "etat.tax" -> {
-                double p;
-                try {
-                    p = Double.parseDouble(a.trim().replace(',', '.').replace("%", ""));
-                } catch (NumberFormatException e) {
-                    return Result.fail("Pourcentage invalide (ex. 2,5).");
-                }
-                String msg = (String) call("setTaxPercent", new Class<?>[]{MinecraftServer.class, double.class}, s, p);
-                return msg.startsWith("L'impôt doit") ? Result.fail(msg) : Result.ok(msg, "fixe l'impôt à " + p + " %");
-            }
             case "etat.wtax" -> {
                 double p;
                 try {
@@ -125,10 +113,6 @@ final class EtatModule {
             case "etat.wtaxreset" -> {
                 String msg = (String) call("resetWealthPercent", S, s);
                 return Result.ok(msg, "remet l'impôt sur le compte à la valeur de la config");
-            }
-            case "etat.taxreset" -> {
-                String msg = (String) call("resetTaxPercent", S, s);
-                return Result.ok(msg, "remet l'impôt à la valeur de la config");
             }
             case "etat.mayor" -> {
                 UUID id = find(s, a);
