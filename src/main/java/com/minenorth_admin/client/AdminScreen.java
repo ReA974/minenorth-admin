@@ -86,6 +86,12 @@ public class AdminScreen extends Screen {
     @Nullable private String focusKey;
 
     private int left, top;
+    /** Échelle d'adaptation : le panneau (400x250) est réduit quand la fenêtre est plus petite. */
+    private float ui = 1f;
+    private int vw, vh;
+    /** Bord gauche de la rangée d'onglets (le titre ne doit pas la dépasser). */
+    private int headLeft;
+    private int permOffset;
 
     public AdminScreen() {
         super(Component.literal("Panneau admin"));
@@ -216,47 +222,46 @@ public class AdminScreen extends Screen {
 
     @Override
     protected void init() {
-        left = (width - W) / 2;
-        top = (height - H) / 2;
+        ui = Math.min(1f, Math.min((width - 8f) / W, (height - 8f) / H));
+        if (ui < 0.3f) ui = 0.3f;
+        vw = Math.round(width / ui);
+        vh = Math.round(height / ui);
+        left = (vw - W) / 2;
+        top = (vh - H) / 2;
         boxes.clear();
 
         int x = W - 8;
-        x -= 44;
-        btn(x, 9, 44, 14, "Fermer", Btn.GHOST, this::onClose);
+        x = head(x, "Fermer", this::onClose, false);
         if (has("LOGS")) {
-            x -= 54;
-            btn(x, 9, 50, 14, "Journal", Btn.GHOST, () -> {
+            x = head(x, "Journal", () -> {
                 tab = Tab.LOGS;
                 send("logs");
                 rebuildWidgets();
-            }).selected(tab == Tab.LOGS);
+            }, tab == Tab.LOGS);
         }
         if (has("STAFF")) {
-            x -= 46;
-            btn(x, 9, 42, 14, "Staff", Btn.GHOST, () -> {
+            x = head(x, "Staff", () -> {
                 tab = Tab.STAFF;
                 send("staff");
                 rebuildWidgets();
-            }).selected(tab == Tab.STAFF);
+            }, tab == Tab.STAFF);
         }
         if (has("ENTREPRISES") && home.getBoolean("Entreprises")) {
-            x -= 70;
-            btn(x, 9, 66, 14, "Entreprises", Btn.GHOST, () -> send("entreprises"));
+            x = head(x, "Entreprises", () -> send("entreprises"), false);
         }
         if (has("ETAT_VIEW") && home.getBoolean("Etat")) {
-            x -= 44;
-            btn(x, 9, 40, 14, "État", Btn.GHOST, () -> {
+            x = head(x, "État", () -> {
                 tab = Tab.ETAT;
                 send("etat");
                 rebuildWidgets();
-            }).selected(tab == Tab.ETAT);
+            }, tab == Tab.ETAT);
         }
-        x -= 54;
-        btn(x, 9, 50, 14, "Joueurs", Btn.GHOST, () -> {
+        x = head(x, "Joueurs", () -> {
             tab = Tab.PLAYERS;
             send("home");
             rebuildWidgets();
-        }).selected(tab == Tab.PLAYERS);
+        }, tab == Tab.PLAYERS);
+        headLeft = x + 3;
 
         if (has("STAFF_MODE")) {
             boolean sm = home.getBoolean("StaffMode");
@@ -270,9 +275,16 @@ public class AdminScreen extends Screen {
         }
     }
 
+    /** Onglet d'en-tête aligné à droite (largeur selon le texte) ; renvoie le bord gauche pour le suivant. */
+    private int head(int right, String label, Runnable r, boolean sel) {
+        int w = Math.max(30, font.width(label) + 10);
+        btn(right - w, 9, w, 14, label, Btn.GHOST, r).selected(sel);
+        return right - w - 3;
+    }
+
     // ================================================================== onglet joueurs
 
-    private static final int PL_X = 8, PL_W = 110, PL_Y = 52, PL_ROW = 12, PL_ROWS = 13;
+    private static final int PL_X = 8, PL_W = 110, PL_Y = 52, PL_ROW = 12, PL_ROWS = 12;
     static final int RX = 124, RW = 268;
 
     private List<CompoundTag> filteredPlayers() {
@@ -334,7 +346,7 @@ public class AdminScreen extends Screen {
                     send("user.delete", target, "", section, 0);
                 } else {
                     confirm = "udel";
-                    message = "Clique encore : TOUTES ses données (inventaire, banque, permis, garage) seront effacées.";
+                    message = "Clique encore : TOUTES ses données seront effacées.";
                     messageOk = false;
                     rebuildWidgets();
                 }
@@ -590,7 +602,9 @@ public class AdminScreen extends Screen {
 
     // ================================================================== onglet staff
 
-    private static final int ST_Y = 54, ST_ROW = 14, ST_ROWS = 9;
+    private static final int ST_Y = 54, ST_ROW = 14, ST_ROWS = 8;
+
+    private static final int PERM_ROWS = 8;
 
     private List<CompoundTag> roles() {
         List<CompoundTag> out = new ArrayList<>();
@@ -642,9 +656,9 @@ public class AdminScreen extends Screen {
             btn(146, ST_Y + ST_ROWS * ST_ROW / 2 + 1, 12, ST_ROWS * ST_ROW / 2 - 1, "▼", Btn.DARK,
                     () -> roleOffset = Math.min(max, roleOffset + 1)).enabled(roleOffset < max);
         }
-        box("newRole", 8, 188, 104, "Nouveau rôle", 24);
-        box("newRank", 116, 188, 42, "Rang", 3);
-        btn(8, 206, 150, 16, "Créer le rôle", Btn.GREEN, () -> {
+        box("newRole", 8, 180, 104, "Nouveau rôle", 24);
+        box("newRank", 116, 180, 42, "Rang", 3);
+        btn(8, 198, 150, 16, "Créer le rôle", Btn.GREEN, () -> {
             int rank;
             try {
                 rank = Integer.parseInt(in("newRank"));
@@ -678,12 +692,22 @@ public class AdminScreen extends Screen {
         ListTag pl = r.getList("Perms", Tag.TAG_STRING);
         for (int i = 0; i < pl.size(); i++) rp.add(pl.getString(i));
         com.minenorth_admin.staff.Perm[] all = com.minenorth_admin.staff.Perm.values();
+        int rowsVisible = PERM_ROWS, rowsTotal = (all.length + 1) / 2;
+        int pmax = Math.max(0, rowsTotal - rowsVisible);
+        permOffset = clamp(permOffset, pmax);
         for (int i = 0; i < all.length; i++) {
+            int row = i / 2 - permOffset;
+            if (row < 0 || row >= rowsVisible) continue;
             com.minenorth_admin.staff.Perm p = all[i];
             boolean on = rp.contains(p.name());
-            int x = 166 + (i % 2) * 114, y = ST_Y + 40 + (i / 2) * 13;
-            btn(x, y, 110, 12, (on ? "✔ " : "✖ ") + p.label, on ? Btn.GREEN : Btn.DARK,
+            int x = 166 + (i % 2) * 106, y = ST_Y + 40 + row * 13;
+            btn(x, y, 102, 12, (on ? "✔ " : "✖ ") + p.label, on ? Btn.GREEN : Btn.DARK,
                     () -> send("role.perm", null, id, p.name(), 0)).enabled(editable && has(p.name()));
+        }
+        if (pmax > 0) {
+            int h = rowsVisible * 13 - 1;
+            btn(380, ST_Y + 40, 12, h / 2 - 1, "▲", Btn.DARK, () -> permOffset = Math.max(0, permOffset - 1)).enabled(permOffset > 0);
+            btn(380, ST_Y + 40 + h / 2 + 1, 12, h / 2 - 1, "▼", Btn.DARK, () -> permOffset = Math.min(pmax, permOffset + 1)).enabled(permOffset < pmax);
         }
         btn(166, 214, 110, 14, "Supprimer le rôle", Btn.RED, () -> confirmThen("rdel", () -> {
             send("role.delete", null, id, "", 0);
@@ -804,7 +828,7 @@ public class AdminScreen extends Screen {
         boolean locked = etat.getBoolean("Locked");
         box("etatCash", 8, 82, 120, "± euros (500 ou -200)", 12);
         btn(132, 81, 80, 16, "Appliquer", Btn.GREEN, () -> send("etat.treasury", null, in("etatCash"), "", 0)).enabled(edit && !in("etatCash").isEmpty());
-        btn(222, 81, 164, 16, locked ? "Rétablir les pouvoirs du maire" : "Suspendre les pouvoirs du maire", locked ? Btn.GREEN : Btn.RED,
+        btn(222, 81, 164, 16, locked ? "Rétablir le maire" : "Suspendre le maire", locked ? Btn.GREEN : Btn.RED,
                 () -> send("etat.lock", null, "", "", locked ? 0 : 1)).enabled(edit && !etat.getString("Mayor").isEmpty());
     }
 
@@ -870,10 +894,10 @@ public class AdminScreen extends Screen {
             case 4 -> {
                 text(g, "Impôt sur le compte des joueurs connectés : " + num(etat.getDouble("Wealth")) + " %", 8, 54, WHITE);
                 text(g, "Prélevé toutes les " + etat.getInt("WealthMinutes") + " min sur ce qui dépasse " + eur(etat.getDouble("WealthFranchise")) + ", versé au trésor.", 8, 65, TEXT);
-                text(g, "Plafond du maire : " + num(etat.getDouble("WealthMax")) + " % (toi, tu n'as pas de plafond). Franchise et délai : config.", 8, 76, DIM);
+                text(g, "Plafond du maire : " + num(etat.getDouble("WealthMax")) + " % (aucun pour toi). Franchise et délai : config.", 8, 76, DIM);
                 text(g, "Taux de l'impôt sur le compte (0 = désactivé)", 8, 101, DIM);
                 text(g, "Impôt sur le salaire : " + num(etat.getDouble("SalaryTax")) + " %", 8, 134, WHITE);
-                text(g, "Retenu sur chaque salaire reçu (État et entreprises), versé au trésor. 0 = désactivé.", 8, 145, TEXT);
+                text(g, "Retenu sur chaque salaire (État et entreprises), versé au trésor. 0 = désactivé.", 8, 145, TEXT);
                 text(g, "Taux de l'impôt sur le salaire", 8, 155, DIM);
                 if (!has("ETAT_EDIT")) text(g, "Lecture seule (pas de droit de modification).", 8, 208, DIM);
             }
@@ -889,7 +913,7 @@ public class AdminScreen extends Screen {
 
     // ================================================================== journal
 
-    private static final int LOG_Y = 52, LOG_ROW = 11, LOG_ROWS = 16;
+    private static final int LOG_Y = 52, LOG_ROW = 11, LOG_ROWS = 15, LOG_W = W - 32;
 
     private List<CompoundTag> filteredLogs() {
         List<CompoundTag> out = new ArrayList<>();
@@ -921,6 +945,8 @@ public class AdminScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
+        mx /= ui;
+        my /= ui;
         int d = (int) -Math.signum(delta);
         double rx = mx - left;
         switch (tab) {
@@ -939,6 +965,7 @@ public class AdminScreen extends Screen {
             }
             case STAFF -> {
                 if (staffMembers) memberOffset = clamp(memberOffset + d, members().size() - ST_ROWS);
+                else if (rx >= 160 && role(roleSel) != null) permOffset = clamp(permOffset + d, (com.minenorth_admin.staff.Perm.values().length + 1) / 2 - PERM_ROWS);
                 else roleOffset = clamp(roleOffset + d, roles().size() - ST_ROWS);
             }
             case LOGS -> logOffset = clamp(logOffset + d * 3, filteredLogs().size() - LOG_ROWS);
@@ -957,6 +984,8 @@ public class AdminScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        mx /= ui;
+        my /= ui;
         if (super.mouseClicked(mx, my, button)) return true;
         switch (tab) {
             case PLAYERS -> {
@@ -1037,6 +1066,7 @@ public class AdminScreen extends Screen {
                         int idx = roleOffset + i;
                         if (idx < rs.size() && inRow(mx, my, 8, ST_Y + i * ST_ROW, 136, ST_ROW)) {
                             roleSel = rs.get(idx).getString("Id");
+                            permOffset = 0;
                             inputs.remove("roleName:" + roleSel);
                             inputs.remove("roleRank:" + roleSel);
                             confirm = "";
@@ -1049,6 +1079,21 @@ public class AdminScreen extends Screen {
             default -> {}
         }
         return false;
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int button) {
+        return super.mouseReleased(mx / ui, my / ui, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        return super.mouseDragged(mx / ui, my / ui, button, dx / ui, dy / ui);
+    }
+
+    @Override
+    public void mouseMoved(double mx, double my) {
+        super.mouseMoved(mx / ui, my / ui);
     }
 
     @Override
@@ -1070,29 +1115,43 @@ public class AdminScreen extends Screen {
         return Component.literal(s).withStyle(ChatFormatting.BOLD);
     }
 
+    /** Texte jamais plus large que le panneau : coupé avec « … » au bord droit (marge 8 px). */
     private void text(GuiGraphics g, String s, int x, int y, int color) {
-        g.drawString(font, s, left + x, top + y, color, false);
+        textFit(g, s, x, y, W - 8 - x, color);
     }
 
     private void textFit(GuiGraphics g, String s, int x, int y, int maxW, int color) {
-        if (font.width(s) > maxW) s = font.plainSubstrByWidth(s, maxW - 6) + "…";
+        if (maxW < 8) return;
+        if (font.width(s) > maxW) s = font.plainSubstrByWidth(s, maxW - font.width("…")) + "…";
         g.drawString(font, s, left + x, top + y, color, false);
     }
 
+    /** Texte à la ligne dans une largeur donnée (9 px par ligne, 3 lignes au plus) ; renvoie le nombre de lignes. */
+    private int wrap(GuiGraphics g, String s, int x, int y, int maxW, int color) {
+        List<net.minecraft.util.FormattedCharSequence> lines = font.split(Component.literal(s), maxW);
+        int n = Math.min(3, lines.size());
+        for (int i = 0; i < n; i++) g.drawString(font, lines.get(i), left + x, top + y + i * 9, color, false);
+        return n;
+    }
+
     private void panel(GuiGraphics g, int x, int y, int w, int h) {
-        g.fill(left + x, top + y, left + x + w, top + y + h, PANEL);
+        Btn.rfill(g, left + x, top + y, left + x + w, top + y + h, 4, PANEL);
     }
 
     @Override
-    public void render(GuiGraphics g, int mx, int my, float pt) {
+    public void render(GuiGraphics g, int realMx, int realMy, float pt) {
         renderBackground(g);
-        g.fill(left - 3, top - 3, left + W + 3, top + H + 3, 0xFF0E0E10);
-        g.fill(left, top, left + W, top + H, BLUE);
+        int mx = Math.round(realMx / ui), my = Math.round(realMy / ui);
+        g.pose().pushPose();
+        if (ui != 1f) g.pose().scale(ui, ui, 1f);
+        Btn.rfill(g, left - 3, top - 3, left + W + 3, top + H + 3, 9, 0xFF0E0E10);
+        Btn.rfill(g, left, top, left + W, top + H, 7, BLUE);
         RenderSystem.enableBlend();
         g.blit(LOGO, left + 8, top + 4, 24, 24, 0, 0, 256, 256, 256, 256);
-        drawScaled(g, bold("PANNEAU ADMIN"), left + 38, top + 7, 1.3f, 120, WHITE);
+        int titleW = Math.max(40, headLeft - 38 - 4);
+        drawScaled(g, bold("PANNEAU ADMIN"), left + 38, top + 7, 1.3f, titleW, WHITE);
         String role = home.getString("Role");
-        text(g, role.isEmpty() ? "MineNorthRP" : role, 38, 20, CYAN);
+        textFit(g, role.isEmpty() ? "MineNorthRP" : role, 38, 20, titleW, CYAN);
 
         ItemStack tip = null;
         String textTip = null;
@@ -1100,15 +1159,23 @@ public class AdminScreen extends Screen {
             case PLAYERS -> {
                 Object o = renderPlayers(g, mx, my);
                 if (o instanceof ItemStack st) tip = st;
+                else if (o instanceof String str) textTip = str;
             }
             case STAFF -> renderStaff(g, mx, my);
             case ETAT -> renderEtat(g);
             case LOGS -> textTip = renderLogs(g, mx, my);
         }
-        if (!message.isEmpty()) textFit(g, message, 8, H - 11, W - 16, messageOk ? OK : WARN);
+        if (!message.isEmpty()) textFit(g, message, 8, H - 12, W - 16, messageOk ? OK : WARN);
         super.render(g, mx, my, pt);
-        if (tip != null && !tip.isEmpty()) g.renderTooltip(font, tip, mx, my);
-        if (textTip != null) g.renderTooltip(font, font.split(Component.literal(textTip), 260), mx, my);
+        g.pose().popPose();
+        // infobulles : hors de l'échelle, aux vraies coordonnées de la souris
+        if (tip != null && !tip.isEmpty()) g.renderTooltip(font, tip, realMx, realMy);
+        if (textTip == null) {
+            for (var c : children()) {
+                if (c instanceof Btn b && b.isHovered() && b.truncated()) textTip = b.getMessage().getString();
+            }
+        }
+        if (textTip != null) g.renderTooltip(font, font.split(Component.literal(textTip), 260), realMx, realMy);
     }
 
     // ------------------------------------------------------------------ joueurs
@@ -1124,8 +1191,8 @@ public class AdminScreen extends Screen {
             CompoundTag p = ps.get(idx);
             int y = PL_Y + i * PL_ROW;
             boolean sel = p.getUUID("Id").equals(selected);
-            if (sel) g.fill(left + PL_X, top + y, left + PL_X + PL_W, top + y + PL_ROW, CYAN);
-            else if (inRow(mx, my, PL_X, y, PL_W, PL_ROW)) g.fill(left + PL_X, top + y, left + PL_X + PL_W, top + y + PL_ROW, HOVER);
+            if (sel) Btn.rfill(g, left + PL_X + 1, top + y, left + PL_X + PL_W - 1, top + y + PL_ROW, 3, CYAN);
+            else if (inRow(mx, my, PL_X, y, PL_W, PL_ROW)) Btn.rfill(g, left + PL_X + 1, top + y, left + PL_X + PL_W - 1, top + y + PL_ROW, 3, HOVER);
             g.fill(left + PL_X + 3, top + y + 4, left + PL_X + 7, top + y + 8, p.getBoolean("On") ? OK : 0xFF555577);
             textFit(g, p.getString("Name"), PL_X + 10, y + 2, PL_W - 12, sel ? WHITE : TEXT);
         }
@@ -1137,20 +1204,21 @@ public class AdminScreen extends Screen {
             if (sections().isEmpty()) text(g, "Ton rôle ne donne accès à aucun onglet joueur.", RX, 54, WARN);
             return null;
         }
-        drawScaled(g, bold(player.getString("Name")), left + RX, top + 34, 1.2f, 170, WHITE);
+        drawScaled(g, bold(player.getString("Name")), left + RX, top + 34, 1.2f, 134, WHITE);
         boolean on = player.getBoolean("On");
         String pseudo = player.getString("Pseudo");
         String status = (on ? "● En ligne" : "● Hors ligne") + (pseudo.isEmpty() || pseudo.equals(player.getString("Name")) ? "" : " · " + pseudo);
-        text(g, status, RX, 48, on ? OK : DIM);
-        if (on) textFit(g, player.getString("Where"), RX + font.width(status) + 6, 48, 200 - font.width(status), DIM);
-        if (player.contains("StaffRole")) text(g, "Staff : " + player.getString("StaffRole"), RX + 176, 36, WARN);
+        textFit(g, status, RX, 48, 134, on ? OK : DIM);
+        String full = status + (on && !player.getString("Where").isEmpty() ? " · " + player.getString("Where") : "")
+                + (player.contains("StaffRole") ? " · Staff : " + player.getString("StaffRole") : "");
+        String hoverTip = inRow(mx, my, RX, 46, 134, 11) && (!full.equals(status) || font.width(status) > 134) ? full : null;
 
         if (!player.contains("Data")) {
             text(g, sections().isEmpty() ? "" : "Choisis un onglet.", RX, 82, TEXT);
-            return null;
+            return hoverTip;
         }
         CompoundTag d = player.getCompound("Data");
-        return switch (section) {
+        Object sub = switch (section) {
             case "bank" -> {
                 renderBank(g, d);
                 yield null;
@@ -1182,6 +1250,7 @@ public class AdminScreen extends Screen {
             }
             default -> null;
         };
+        return sub != null ? sub : hoverTip;
     }
 
     private void renderBank(GuiGraphics g, CompoundTag d) {
@@ -1212,12 +1281,15 @@ public class AdminScreen extends Screen {
             int idx = offset + i;
             if (idx >= count) break;
             int y = LIST_Y + i * LIST_ROW;
-            if (idx == sel) g.fill(left + RX, top + y, left + RX + w, top + y + LIST_ROW, CYAN);
-            else if (inRow(mx, my, RX, y, w, LIST_ROW)) g.fill(left + RX, top + y, left + RX + w, top + y + LIST_ROW, HOVER);
+            if (idx == sel) Btn.rfill(g, left + RX + 1, top + y, left + RX + w - 1, top + y + LIST_ROW, 3, CYAN);
+            else if (inRow(mx, my, RX, y, w, LIST_ROW)) Btn.rfill(g, left + RX + 1, top + y, left + RX + w - 1, top + y + LIST_ROW, 3, HOVER);
             String[] r = row.apply(idx);   // {gauche, droite, couleurDroite}
-            int rw = font.width(r[1]);
-            textFit(g, r[0], RX + 4, y + 3, w - rw - 12, WHITE);
-            text(g, r[1], RX + w - 4 - rw, y + 3, idx == sel ? WHITE : (int) Long.parseLong(r[2], 16));
+            String right = r[1];
+            int maxRight = (w - 12) * 2 / 3;
+            if (font.width(right) > maxRight) right = font.plainSubstrByWidth(right, maxRight - font.width("…")) + "…";
+            int rw = font.width(right);
+            textFit(g, r[0], RX + 5, y + 3, w - rw - 15, WHITE);
+            textFit(g, right, RX + w - 5 - rw, y + 3, rw + 1, idx == sel ? WHITE : (int) Long.parseLong(r[2], 16));
         }
     }
 
@@ -1234,7 +1306,7 @@ public class AdminScreen extends Screen {
                     has ? "FF5FE0A0" : "FF8FA8E0"};
         });
         if (lic.isEmpty()) text(g, "Aucune licence dans la config du mod permis.", RX + 4, LIST_Y + 3, DIM);
-        textFit(g, "Jours : vide = " + d.getInt("DefaultDays") + " j (config), 0 = perm.", RX, 211, 172, DIM);
+        textFit(g, "Vide = " + d.getInt("DefaultDays") + " j · 0 = permanent", RX, 212, 170, DIM);
         ListTag cds = d.getList("Cooldowns", Tag.TAG_COMPOUND);
         if (!cds.isEmpty()) {
             StringBuilder b = new StringBuilder("Délais : ");
@@ -1242,7 +1314,7 @@ public class AdminScreen extends Screen {
                 if (i > 0) b.append(", ");
                 b.append(cds.getCompound(i).getString("Key")).append(" ").append(cds.getCompound(i).getString("Left"));
             }
-            textFit(g, b.toString(), RX, 222, RW, WARN);
+            textFit(g, b.toString(), RX, 225, RW, WARN);
         }
     }
 
@@ -1297,8 +1369,8 @@ public class AdminScreen extends Screen {
         } else {
             text(g, "Non banni", RX, 79, OK);
         }
-        text(g, "Ban temporaire : indique une durée. Ban définitif : sans durée.", RX, 172, DIM);
-        if (!has("MODERATE")) text(g, "Pas de droit de sanction.", RX, 186, DIM);
+        wrap(g, "Ban temporaire : indique une durée. Ban définitif : sans durée.", RX, 172, RW, DIM);
+        if (!has("MODERATE")) text(g, "Pas de droit de sanction.", RX, 194, DIM);
     }
 
     // ------------------------------------------------------------------ grade (mod VIP)
@@ -1335,7 +1407,7 @@ public class AdminScreen extends Screen {
         String cur = d.getString("Current");
         String curName = "";
         for (int i = 0; i < list.size(); i++) if (list.getCompound(i).getString("Id").equalsIgnoreCase(cur)) curName = list.getCompound(i).getString("Name");
-        text(g, cur.isEmpty() ? "Aucun grade" : "Grade : " + curName + " (" + d.getString("Until") + ")", RX, 79, cur.isEmpty() ? DIM : OK);
+        textFit(g, cur.isEmpty() ? "Aucun grade" : "Grade : " + curName + " (" + d.getString("Until") + ")", RX, 79, RW, cur.isEmpty() ? DIM : OK);
         gradeOffset = clamp(gradeOffset, list.size() - LIST_ROWS);
         renderList(g, mx, my, list.size(), gradeOffset, gradeSel, i -> {
             CompoundTag c = list.getCompound(i);
@@ -1343,7 +1415,7 @@ public class AdminScreen extends Screen {
             return new String[]{c.getString("Name"), has ? "✔ " + c.getString("Until") : "", "FF5FE0A0"};
         });
         if (list.isEmpty()) text(g, "Aucun grade dans la config du mod VIP.", RX + 4, LIST_Y + 3, DIM);
-        textFit(g, "Jours : vide = permanent.", RX, 211, 172, DIM);
+        textFit(g, "Vide = permanent.", RX, 212, 170, DIM);
         if (!has("GRADE_EDIT")) text(g, "Lecture seule (pas de droit de modification).", RX, 228, DIM);
     }
 
@@ -1378,8 +1450,8 @@ public class AdminScreen extends Screen {
     private void renderPolice(GuiGraphics g, CompoundTag d, int mx, int my) {
         boolean police = d.getBoolean("Police");
         ListTag officers = d.getList("Officers", Tag.TAG_COMPOUND);
-        text(g, police ? "Policier (" + d.getString("Grade") + ")" : "Pas dans la police", RX, 79, police ? OK : DIM);
-        text(g, "Effectifs : " + officers.size(), RX + 170, 79, DIM);
+        textFit(g, police ? "Policier (" + d.getString("Grade") + ")" : "Pas dans la police", RX, 79, 160, police ? OK : DIM);
+        textFit(g, "Effectifs : " + officers.size(), RX + 170, 79, RW - 170, DIM);
         policeOffset = clamp(policeOffset, officers.size() - LIST_ROWS);
         renderList(g, mx, my, officers.size(), policeOffset, -1, i -> {
             CompoundTag o = officers.getCompound(i);
@@ -1415,8 +1487,8 @@ public class AdminScreen extends Screen {
     private void renderSecours(GuiGraphics g, CompoundTag d, int mx, int my) {
         boolean member = d.getBoolean("Secours");
         ListTag members = d.getList("Members", Tag.TAG_COMPOUND);
-        text(g, member ? "Pompier (" + d.getString("Grade") + ")" : "Pas pompier", RX, 79, member ? OK : DIM);
-        text(g, "Effectifs : " + members.size(), RX + 170, 79, DIM);
+        textFit(g, member ? "Pompier (" + d.getString("Grade") + ")" : "Pas pompier", RX, 79, 160, member ? OK : DIM);
+        textFit(g, "Effectifs : " + members.size(), RX + 170, 79, RW - 170, DIM);
         secoursOffset = clamp(secoursOffset, members.size() - LIST_ROWS);
         renderList(g, mx, my, members.size(), secoursOffset, -1, i -> {
             CompoundTag o = members.getCompound(i);
@@ -1447,7 +1519,7 @@ public class AdminScreen extends Screen {
             return null;
         }
         boolean live = d.getBoolean("Live");
-        text(g, live ? "En direct" : "Hors ligne (fichier)", RX + 156, 79, live ? OK : WARN);
+        textFit(g, live ? "En direct" : "Hors ligne (fichier)", RX + 156, 79, RW - 156, live ? OK : WARN);
         Map<Integer, ItemStack> items = items(d);
         ItemStack hover = null;
         for (int s = 0; s < slotCount(); s++) {
@@ -1464,8 +1536,8 @@ public class AdminScreen extends Screen {
         }
         if (!invEnder) {
             int[] a = slotPos(39), o = slotPos(40);
-            text(g, "Armure", a[0] - 2, a[1] - 9, DIM);
-            text(g, "Main 2", o[0] - 4, o[1] - 9, DIM);
+            text(g, "Armure", a[0] - 2, a[1] - 8, DIM);
+            text(g, "Main 2", o[0] - 1, o[1] - 8, DIM);
         }
         if (!has("INV_EDIT")) text(g, "Lecture seule.", RX, 218, DIM);
         return hover;
@@ -1478,7 +1550,7 @@ public class AdminScreen extends Screen {
             text(g, "Chargement…", 8, ST_Y, DIM);
             return;
         }
-        text(g, owner ? "Tu es propriétaire (op) : tous les droits." : "Ton rang : " + myRank() + ". Tu gères les rangs inférieurs.", 140, 37, DIM);
+        textFit(g, owner ? "Propriétaire (op) : tous les droits." : "Rang " + myRank() + " : gère les rangs inférieurs.", 140, 37, 186, DIM);
         if (staffMembers) {
             List<CompoundTag> ms = members();
             memberOffset = clamp(memberOffset, ms.size() - ST_ROWS);
@@ -1489,17 +1561,18 @@ public class AdminScreen extends Screen {
                 CompoundTag m = ms.get(idx);
                 int y = ST_Y + i * ST_ROW;
                 boolean sel = m.getUUID("Id").equals(memberSel);
-                if (sel) g.fill(left + 8, top + y, left + 238, top + y + ST_ROW, CYAN);
-                else if (inRow(mx, my, 8, y, 230, ST_ROW)) g.fill(left + 8, top + y, left + 238, top + y + ST_ROW, HOVER);
+                if (sel) Btn.rfill(g, left + 9, top + y, left + 237, top + y + ST_ROW, 3, CYAN);
+                else if (inRow(mx, my, 8, y, 230, ST_ROW)) Btn.rfill(g, left + 9, top + y, left + 237, top + y + ST_ROW, 3, HOVER);
                 g.fill(left + 11, top + y + 5, left + 15, top + y + 9, m.getBoolean("On") ? OK : 0xFF555577);
-                textFit(g, m.getString("Name"), 18, y + 3, 110, WHITE);
                 CompoundTag r = role(m.getString("Role"));
                 String rn = r == null ? "?" : r.getString("Name") + " (" + r.getInt("Rank") + ")";
-                text(g, rn, 236 - font.width(rn), y + 3, sel ? WHITE : CYAN);
+                if (font.width(rn) > 100) rn = font.plainSubstrByWidth(rn, 100 - font.width("…")) + "…";
+                textFit(g, m.getString("Name"), 18, y + 3, 218 - font.width(rn) - 8 - 6 + 6, WHITE);
+                textFit(g, rn, 233 - font.width(rn), y + 3, font.width(rn) + 1, sel ? WHITE : CYAN);
             }
-            if (ms.isEmpty()) text(g, "Aucun membre. Ajoute-en un à droite.", 12, ST_Y + 3, DIM);
+            if (ms.isEmpty()) textFit(g, "Aucun membre. Ajoute-en un à droite.", 12, ST_Y + 3, 220, DIM);
             text(g, "Ajouter / changer de rôle", 258, ST_Y, CYAN);
-            if (assignable().isEmpty()) textFit(g, "Crée d'abord un rôle de rang inférieur au tien.", 258, ST_Y + 70, 134, WARN);
+            if (assignable().isEmpty()) wrap(g, "Crée d'abord un rôle de rang inférieur au tien.", 258, ST_Y + 70, 134, WARN);
             text(g, "Les rôles sont invisibles", 258, 214, DIM);
             text(g, "pour les joueurs.", 258, 224, DIM);
         } else {
@@ -1512,22 +1585,20 @@ public class AdminScreen extends Screen {
                 CompoundTag r = rs.get(idx);
                 int y = ST_Y + i * ST_ROW;
                 boolean sel = r.getString("Id").equals(roleSel);
-                if (sel) g.fill(left + 8, top + y, left + 144, top + y + ST_ROW, CYAN);
-                else if (inRow(mx, my, 8, y, 136, ST_ROW)) g.fill(left + 8, top + y, left + 144, top + y + ST_ROW, HOVER);
+                if (sel) Btn.rfill(g, left + 9, top + y, left + 143, top + y + ST_ROW, 3, CYAN);
+                else if (inRow(mx, my, 8, y, 136, ST_ROW)) Btn.rfill(g, left + 9, top + y, left + 143, top + y + ST_ROW, 3, HOVER);
                 String right = r.getInt("Rank") + " · " + r.getInt("Count");
-                textFit(g, r.getString("Name"), 12, y + 3, 120 - font.width(right), r.getInt("Rank") < myRank() ? WHITE : DIM);
-                text(g, right, 141 - font.width(right), y + 3, sel ? WHITE : DIM);
+                textFit(g, r.getString("Name"), 13, y + 3, 124 - font.width(right) - 8, r.getInt("Rank") < myRank() ? WHITE : DIM);
+                textFit(g, right, 139 - font.width(right), y + 3, font.width(right) + 1, sel ? WHITE : DIM);
             }
             if (rs.isEmpty()) text(g, "Aucun rôle.", 12, ST_Y + 3, DIM);
             text(g, "rang · membres", 60, ST_Y + ST_ROWS * ST_ROW + 3, DIM);
             CompoundTag r = role(roleSel);
             if (r == null) {
                 text(g, "Choisis un rôle pour le modifier.", 166, ST_Y + 3, TEXT);
-                text(g, "Rang : plus il est grand, plus le rôle", 166, ST_Y + 20, DIM);
-                text(g, "a de pouvoir. On ne gère que les rangs", 166, ST_Y + 30, DIM);
-                text(g, "inférieurs au sien.", 166, ST_Y + 40, DIM);
+                wrap(g, "Rang : plus il est grand, plus le rôle a de pouvoir. On ne gère que les rangs inférieurs au sien.", 166, ST_Y + 20, 226, DIM);
             } else if (r.getInt("Rank") >= myRank()) {
-                text(g, "Rang trop élevé : lecture seule.", 274, ST_Y + 21, WARN);
+                textFit(g, "Rang trop élevé", 274, ST_Y + 21, 116, WARN);
             }
         }
     }
@@ -1538,25 +1609,25 @@ public class AdminScreen extends Screen {
     private String renderLogs(GuiGraphics g, int mx, int my) {
         List<CompoundTag> ls = filteredLogs();
         logOffset = clamp(logOffset, ls.size() - LOG_ROWS);
-        panel(g, 8, LOG_Y - 1, W - 30, LOG_ROWS * LOG_ROW + 2);
+        panel(g, 8, LOG_Y - 1, LOG_W, LOG_ROWS * LOG_ROW + 2);
         String tip = null;
         for (int i = 0; i < LOG_ROWS; i++) {
             int idx = logOffset + i;
             if (idx >= ls.size()) break;
             CompoundTag t = ls.get(idx);
             int y = LOG_Y + i * LOG_ROW;
-            boolean in = inRow(mx, my, 8, y, W - 30, LOG_ROW);
-            if (in) g.fill(left + 8, top + y, left + W - 22, top + y + LOG_ROW, HOVER);
+            boolean in = inRow(mx, my, 8, y, LOG_W, LOG_ROW);
+            if (in) Btn.rfill(g, left + 8, top + y, left + 8 + LOG_W, top + y + LOG_ROW, 2, HOVER);
             String date = t.getString("D");
             text(g, date, 11, y + 2, DIM);
             int x = 11 + font.width(date) + 6;
             String line = logLine(t);
-            textFit(g, line, x, y + 2, W - 30 - x, TEXT);
-            if (in && font.width(line) > W - 30 - x) tip = date + "  " + line;
+            textFit(g, line, x, y + 2, LOG_W - x + 4, TEXT);
+            if (in && font.width(line) > LOG_W - x + 4) tip = date + "  " + line;
         }
         if (logs == null) text(g, "Chargement…", 12, LOG_Y + 3, DIM);
         else if (ls.isEmpty()) text(g, "Aucune action enregistrée.", 12, LOG_Y + 3, DIM);
-        text(g, ls.size() + " entrée(s) · fichier serveur : logs/minenorth_admin.log", 8, LOG_Y + LOG_ROWS * LOG_ROW + 4, DIM);
+        textFit(g, ls.size() + " entrée(s) · fichier serveur : logs/minenorth_admin.log", 8, LOG_Y + LOG_ROWS * LOG_ROW + 4, W - 16, DIM);
         return tip;
     }
 }

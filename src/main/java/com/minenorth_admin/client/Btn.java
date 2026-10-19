@@ -57,25 +57,63 @@ public class Btn extends AbstractButton {
         defaultButtonNarrationText(out);
     }
 
+    /** Rectangle aux coins arrondis (rayon r en pixels GUI), comme la charte MineNorth. */
+    static void rfill(GuiGraphics g, int x1, int y1, int x2, int y2, int r, int c) {
+        r = Math.max(0, Math.min(r, Math.min(x2 - x1, y2 - y1) / 2));
+        g.fill(x1, y1 + r, x2, y2 - r, c);
+        for (int i = 0; i < r; i++) {
+            double dy = r - i - 0.5;
+            int inset = r - (int) Math.round(Math.sqrt(r * (double) r - dy * dy));
+            g.fill(x1 + inset, y1 + i, x2 - inset, y1 + i + 1, c);
+            g.fill(x1 + inset, y2 - i - 1, x2 - inset, y2 - i, c);
+        }
+    }
+
+    /** Libellé tronqué (trop long pour le bouton même réduit) : l'écran affiche alors le texte complet en infobulle. */
+    public boolean truncated() {
+        Font font = Minecraft.getInstance().font;
+        return font.width(getMessage()) * MIN_SCALE > width - 6;
+    }
+
+    private static final float MIN_SCALE = 0.75f;
+
     @Override
     public void renderWidget(GuiGraphics g, int mx, int my, float pt) {
         Font font = Minecraft.getInstance().font;
         int x = getX(), y = getY();
         boolean hov = isHovered() && active;
-        int ty = y + (height - 8) / 2;
         Component label = getMessage();
-        if (font.width(label) > width - 4) {
-            label = Component.literal(font.plainSubstrByWidth(label.getString(), width - 8) + "…");
+        int avail = width - 6;
+        int tw = font.width(label);
+        float sc = 1f;
+        if (tw > avail) {
+            sc = Math.max(MIN_SCALE, avail / (float) tw);
+            if (tw * sc > avail) {
+                label = Component.literal(font.plainSubstrByWidth(label.getString(), (int) (avail / sc) - 6) + "…");
+                tw = font.width(label);
+            }
         }
+        int textH = Math.round(8 * sc);
+        int ty = y + (height - textH) / 2;
+        int tc;
         if (color == GHOST) {
-            int tc = !active ? 0xFF6F7FB0 : selected || hov ? 0xFFFFFFFF : 0xFFCFE3FF;
-            g.drawCenteredString(font, label, x + width / 2, ty, tc);
-            if (selected || hov) g.fill(x + 2, y + height - 1, x + width - 2, y + height, selected ? CYAN : tc);
-            return;
+            tc = !active ? 0xFF6F7FB0 : selected || hov ? 0xFFFFFFFF : 0xFFCFE3FF;
+            if (selected || hov) g.fill(x + 3, y + height - 1, x + width - 3, y + height, selected ? CYAN : tc);
+        } else {
+            int bg = !active ? 0xFF2A2468 : selected ? lighten(color) : hov ? lighten(color) : color;
+            int r = height >= 16 ? 4 : 3;
+            rfill(g, x, y, x + width, y + height, r, bg);
+            if (selected) g.fill(x + r, y + height - 2, x + width - r, y + height - 1, 0xFFFFFFFF);
+            tc = active ? 0xFFFFFFFF : 0xFF8FA8E0;
         }
-        int bg = !active ? 0xFF2A2468 : selected ? lighten(color) : hov ? lighten(color) : color;
-        g.fill(x, y, x + width, y + height, bg);
-        if (selected) g.fill(x, y + height - 2, x + width, y + height, 0xFFFFFFFF);
-        g.drawCenteredString(font, label, x + width / 2, ty, active ? 0xFFFFFFFF : 0xFF8FA8E0);
+        int cx = x + width / 2;
+        if (sc == 1f) {
+            g.drawCenteredString(font, label, cx, ty, tc);
+        } else {
+            g.pose().pushPose();
+            g.pose().scale(sc, sc, 1f);
+            g.drawString(font, label, Math.round((cx - tw * sc / 2f) / sc), Math.round(ty / sc), tc, false);
+            g.pose().popPose();
+        }
     }
 }
