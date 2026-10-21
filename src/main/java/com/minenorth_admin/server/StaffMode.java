@@ -9,6 +9,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
@@ -45,6 +46,7 @@ public final class StaffMode {
             p.setGameMode(prev == GameType.SPECTATOR ? GameType.SURVIVAL : prev);
             d.remove(PREV);
             retrack(p);
+            p.refreshTabListName();
             return false;
         }
         GameType cur = p.gameMode.getGameModeForPlayer();
@@ -53,6 +55,7 @@ public final class StaffMode {
         p.setGameMode(GameType.CREATIVE);
         applyVanish(p);
         retrack(p);
+        p.refreshTabListName();
         return true;
     }
 
@@ -72,10 +75,26 @@ public final class StaffMode {
         }
     }
 
+    /** Grade affiché dans la liste des joueurs (TAB) en mode staff : le rôle réglé dans le menu admin (onglet Staff), à défaut « Staff ». */
+    public static String gradeOf(ServerPlayer p) {
+        var data = com.minenorth_admin.staff.StaffData.get(p.server);
+        var m = data.member(p.getUUID());
+        var r = m == null ? null : data.role(m.role);
+        return r != null ? r.name : "Staff";
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public void tabName(PlayerEvent.TabListNameFormat e) {
+        if (!(e.getEntity() instanceof ServerPlayer p) || !is(p)) return;
+        net.minecraft.network.chat.Component base = e.getDisplayName() != null ? e.getDisplayName() : p.getName();
+        e.setDisplayName(net.minecraft.network.chat.Component.literal("§c[" + gradeOf(p) + "] §r").append(base));
+    }
+
     @SubscribeEvent
     public void onTick(TickEvent.PlayerTickEvent e) {
         if (e.phase != TickEvent.Phase.END || !(e.player instanceof ServerPlayer p) || p.tickCount % 40 != 0) return;
         if (is(p) && !p.hasEffect(MobEffects.INVISIBILITY)) applyVanish(p);
+        if (is(p) && p.tickCount % 200 == 0) p.refreshTabListName();     // suit un changement de grade fait dans le menu admin
     }
 
     @SubscribeEvent
