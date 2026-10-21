@@ -41,7 +41,7 @@ public class AdminScreen extends Screen {
     static final int TEXT = 0xFFCFE3FF, DIM = 0xFF8FA8E0, WARN = 0xFFFFE066, OK = 0xFF5FE0A0, BAD = 0xFFFF5F6B, WHITE = 0xFFFFFFFF;
     static final int CYAN = Btn.CYAN;
 
-    enum Tab { PLAYERS, STAFF, ETAT, PROPS, LOGS }
+    enum Tab { PLAYERS, STAFF, ETAT, PROPS, VOL, SEC, LOGS }
 
     // ------------------------------------------------------------------ état
     private Tab tab = Tab.PLAYERS;
@@ -128,6 +128,20 @@ public class AdminScreen extends Screen {
                 if (!has("LOGS") && tab == Tab.LOGS) tab = Tab.PLAYERS;
                 if ((!has("ETAT_VIEW") || !home.getBoolean("Etat")) && tab == Tab.ETAT) tab = Tab.PLAYERS;
                 if ((!has("PROPRIETES_VIEW") || !home.getBoolean("Portes")) && tab == Tab.PROPS) tab = Tab.PLAYERS;
+                if ((!has("VOL_ADMIN") || !home.getBoolean("Vol")) && tab == Tab.VOL) tab = Tab.PLAYERS;
+                if ((!has("SECOURS_ADMIN") || !home.getBoolean("SecoursCfg")) && tab == Tab.SEC) tab = Tab.PLAYERS;
+                // ouverture directe sur un onglet (depuis les mods Vol et Secours)
+                if (d.contains("Tab")) {
+                    if (d.getString("Tab").equals("vol")) {
+                        tab = Tab.VOL;
+                        volPage = Math.max(0, Math.min(2, d.getInt("Page")));
+                        resetCfgList();
+                    } else if (d.getString("Tab").equals("sec")) {
+                        tab = Tab.SEC;
+                        secPage = Math.max(0, Math.min(2, d.getInt("Page")));
+                        resetCfgList();
+                    }
+                }
             }
             case "player" -> {
                 UUID id = d.getUUID("Id");
@@ -147,6 +161,14 @@ public class AdminScreen extends Screen {
             case "staff" -> staff = d;
             case "logs" -> logs = d;
             case "etat" -> etat = d;
+            case "vol" -> {
+                vol = d;
+                tab = Tab.VOL;
+            }
+            case "sec" -> {
+                sec = d;
+                tab = Tab.SEC;
+            }
             case "props" -> {
                 props = d;
                 tab = Tab.PROPS;
@@ -247,7 +269,7 @@ public class AdminScreen extends Screen {
         top = (vh - H) / 2;
         boxes.clear();
 
-        // onglets du haut, de gauche à droite ; libellés abrégés si la rangée gênerait le titre
+        // rangée du haut : bouton Fermer ; rangée du dessous : onglets, de gauche à droite (libellés abrégés si la place manque)
         List<String[]> hts = new ArrayList<>();
         List<Runnable> hrs = new ArrayList<>();
         List<Boolean> hsel = new ArrayList<>();
@@ -276,6 +298,26 @@ public class AdminScreen extends Screen {
             });
             hsel.add(tab == Tab.ETAT);
         }
+        if (has("VOL_ADMIN") && home.getBoolean("Vol")) {
+            hts.add(new String[]{"Vol", "Vol"});
+            hrs.add(() -> {
+                tab = Tab.VOL;
+                resetCfgList();
+                send("vol");
+                rebuildWidgets();
+            });
+            hsel.add(tab == Tab.VOL);
+        }
+        if (has("SECOURS_ADMIN") && home.getBoolean("SecoursCfg")) {
+            hts.add(new String[]{"Secours", "Secours"});
+            hrs.add(() -> {
+                tab = Tab.SEC;
+                resetCfgList();
+                send("sec");
+                rebuildWidgets();
+            });
+            hsel.add(tab == Tab.SEC);
+        }
         if (has("ENTREPRISES") && home.getBoolean("Entreprises")) {
             hts.add(new String[]{"Entreprises", "Entrep."});
             hrs.add(() -> send("entreprises"));
@@ -299,15 +341,14 @@ public class AdminScreen extends Screen {
             });
             hsel.add(tab == Tab.LOGS);
         }
-        hts.add(new String[]{"Fermer", "✖"});
-        hrs.add(this::onClose);
-        hsel.add(false);
         int need = 0;
         for (String[] h : hts) need += Math.max(28, font.width(h[0]) + 8) + 2;
-        boolean compact = W - 8 - need < 38 + 92;
-        int x = W - 8;
-        for (int i = hts.size() - 1; i >= 0; i--) x = head(x, hts.get(i)[compact ? 1 : 0], hrs.get(i), hsel.get(i));
-        headLeft = x + 3;
+        boolean compact = need > W - 8 - 38;
+        int x = 38;
+        for (int i = 0; i < hts.size(); i++) x = head(x, hts.get(i)[compact ? 1 : 0], hrs.get(i), hsel.get(i));
+        int cw = Math.max(28, font.width("Fermer") + 8);
+        headLeft = W - 8 - cw;
+        btn(headLeft, 4, cw, 12, "Fermer", Btn.GHOST, this::onClose);
 
         if (has("STAFF_MODE")) {
             boolean sm = home.getBoolean("StaffMode");
@@ -318,15 +359,17 @@ public class AdminScreen extends Screen {
             case STAFF -> initStaff();
             case ETAT -> initEtat();
             case PROPS -> initProps();
+            case VOL -> initVol();
+            case SEC -> initSecours();
             case LOGS -> initLogs();
         }
     }
 
-    /** Onglet d'en-tête aligné à droite (largeur selon le texte) ; renvoie le bord gauche pour le suivant. */
-    private int head(int right, String label, Runnable r, boolean sel) {
+    /** Onglet d'en-tête (largeur selon le texte) ; renvoie le bord gauche du suivant. */
+    private int head(int x, String label, Runnable r, boolean sel) {
         int w = Math.max(28, font.width(label) + 8);
-        btn(right - w, 9, w, 14, label, Btn.GHOST, r).selected(sel);
-        return right - w - 2;
+        btn(x, 19, w, 12, label, Btn.GHOST, r).selected(sel);
+        return x + w + 2;
     }
 
     // ================================================================== onglet joueurs
@@ -1237,6 +1280,317 @@ public class AdminScreen extends Screen {
         if (items.isEmpty()) text(g, "Aucune propriété à son nom.", RX + 4, LIST_Y + 3, DIM);
     }
 
+    // ================================================================== onglets Vol et Secours (réglages en direct)
+
+    private static final int CF_ROW = 18, CF_ROWS = 8, CF_W = 368;
+    @Nullable private CompoundTag vol, sec;
+    private int volPage, secPage, cfgOffset, cfgMax;
+    private String volGroup = "", secGroup = "";
+    private String volStoreSel = "", siteSel = "", spawnSel = "";
+    private boolean volStation, secSpawnUrg;
+
+    private static List<CompoundTag> tags(@Nullable CompoundTag v, String key) {
+        List<CompoundTag> out = new ArrayList<>();
+        if (v == null) return out;
+        ListTag l = v.getList(key, Tag.TAG_COMPOUND);
+        for (int i = 0; i < l.size(); i++) out.add(l.getCompound(i));
+        return out;
+    }
+
+    private static List<String> groups(@Nullable CompoundTag v) {
+        List<String> out = new ArrayList<>();
+        for (CompoundTag t : tags(v, "Settings")) if (!out.contains(t.getString("G"))) out.add(t.getString("G"));
+        return out;
+    }
+
+    private static String pickGroup(String cur, List<String> gs) {
+        return gs.contains(cur) ? cur : gs.isEmpty() ? "" : gs.get(0);
+    }
+
+    private void resetCfgList() {
+        cfgOffset = 0;
+        confirm = "";
+    }
+
+    /** Pages (sous-onglets) en haut de l'onglet. */
+    private void cfgPages(String[] names, int current, java.util.function.IntConsumer pick) {
+        int w = Math.min(120, (CF_W + 2) / names.length - 2);
+        for (int i = 0; i < names.length; i++) {
+            int idx = i;
+            btn(8 + i * (w + 2), 34, w, 13, names[i], Btn.DARK, () -> {
+                pick.accept(idx);
+                resetCfgList();
+                rebuildWidgets();
+            }).selected(current == i);
+        }
+    }
+
+    /** Boutons de groupes de réglages (rangée y = 50) ; renvoie le groupe actif. */
+    private String cfgGroups(@Nullable CompoundTag v, String current, java.util.function.Consumer<String> pick) {
+        List<String> gs = groups(v);
+        String g = pickGroup(current, gs);
+        if (gs.size() > 1) {
+            int w = Math.min(100, (CF_W + 2) / gs.size() - 2);
+            for (int i = 0; i < gs.size(); i++) {
+                String name = gs.get(i);
+                btn(8 + i * (w + 2), 50, w, 12, name, Btn.GHOST, () -> {
+                    pick.accept(name);
+                    resetCfgList();
+                    rebuildWidgets();
+                }).selected(name.equals(g));
+            }
+        }
+        return g;
+    }
+
+    private static String fmt(double v, boolean integer) {
+        return integer ? String.valueOf(Math.round(v)) : num(v);
+    }
+
+    /** Liste de réglages − / + (ou Oui / Non) d'un groupe. */
+    private void cfgSettings(@Nullable CompoundTag v, String group, String action, int y0) {
+        List<CompoundTag> all = new ArrayList<>();
+        for (CompoundTag t : tags(v, "Settings")) if (group.isEmpty() || t.getString("G").equals(group)) all.add(t);
+        cfgMax = Math.max(0, all.size() - CF_ROWS);
+        cfgOffset = clamp(cfgOffset, cfgMax);
+        for (int r = 0; r < CF_ROWS; r++) {
+            int i = cfgOffset + r;
+            if (i >= all.size()) break;
+            CompoundTag st = all.get(i);
+            String key = st.getString("K");
+            double val = st.getDouble("V"), step = st.getDouble("S"), min = st.getDouble("Mn"), max = st.getDouble("Mx");
+            boolean integer = st.getString("T").equals("i");
+            int y = y0 + r * CF_ROW;
+            if (st.getString("T").equals("b")) {
+                boolean on = val >= 0.5;
+                btn(316, y + 1, 56, 14, on ? "Oui" : "Non", on ? Btn.GREEN : Btn.DARK, () -> send(action, null, key, on ? "0" : "1", 0));
+            } else {
+                btn(272, y + 1, 18, 14, "−", Btn.DARK, () -> send(action, null, key, Double.toString(val - step * (hasShiftDown() ? 10 : 1)), 0)).enabled(val > min);
+                btn(356, y + 1, 18, 14, "+", Btn.DARK, () -> send(action, null, key, Double.toString(val + step * (hasShiftDown() ? 10 : 1)), 0)).enabled(val < max);
+            }
+        }
+        cfgScroll(y0, CF_ROWS, CF_ROW, all.size());
+    }
+
+    private void cfgScroll(int y0, int rows, int pitch, int count) {
+        cfgMax = Math.max(0, count - rows);
+        cfgOffset = clamp(cfgOffset, cfgMax);
+        if (count <= rows) return;
+        int h = rows * pitch - 2;
+        btn(380, y0, 12, h / 2 - 1, "▲", Btn.DARK, () -> cfgOffset = Math.max(0, cfgOffset - 1)).enabled(cfgOffset > 0);
+        btn(380, y0 + h / 2 + 1, 12, h / 2 - 1, "▼", Btn.DARK, () -> cfgOffset = Math.min(cfgMax, cfgOffset + 1)).enabled(cfgOffset < cfgMax);
+    }
+
+    private void renderCfgSettings(GuiGraphics g, @Nullable CompoundTag v, String group, int y0) {
+        if (v == null) {
+            text(g, "Chargement…", 8, y0 + 3, DIM);
+            return;
+        }
+        List<CompoundTag> all = new ArrayList<>();
+        for (CompoundTag t : tags(v, "Settings")) if (group.isEmpty() || t.getString("G").equals(group)) all.add(t);
+        if (all.isEmpty()) text(g, "Aucun réglage disponible (mets à jour le mod concerné).", 8, y0 + 3, DIM);
+        for (int r = 0; r < CF_ROWS; r++) {
+            int i = cfgOffset + r;
+            if (i >= all.size()) break;
+            CompoundTag st = all.get(i);
+            int y = y0 + r * CF_ROW;
+            Btn.rfill(g, left + 8, top + y, left + 8 + CF_W, top + y + 16, 4, PANEL);
+            textFit(g, st.getString("L"), 14, y + 4, 254, TEXT);
+            if (!st.getString("T").equals("b")) {
+                String val = fmt(st.getDouble("V"), st.getString("T").equals("i"));
+                textFit(g, val, 291 + (64 - font.width(val)) / 2, y + 4, 64, WARN);
+            }
+        }
+        text(g, "Molette : défiler · Maj + clic : pas ×10 · enregistré tout de suite", 8, y0 + CF_ROWS * CF_ROW + 1, DIM);
+    }
+
+    /** Ligne de liste sélectionnable (bouton plat). */
+    private Btn listRow(int i, int y0, int pitch, String label, boolean sel, Runnable r) {
+        return btn(8, y0 + i * pitch, CF_W - 14, pitch - 1, label, Btn.DARK, r).selected(sel);
+    }
+
+    // ------------------------------------------------------------------ Vol
+
+    private void initVol() {
+        cfgPages(new String[]{"Réglages", "Magasins braquables", "Dossiers de vol (" + tags(vol, "Cases").size() + ")"}, volPage, i -> volPage = i);
+        if (vol == null) return;
+        switch (volPage) {
+            case 0 -> {
+                volGroup = cfgGroups(vol, volGroup, gname -> volGroup = gname);
+                cfgSettings(vol, volGroup, "vol.set", 66);
+            }
+            case 1 -> {
+                box("volStore", 8, 64, 132, "Nom du magasin", 24);
+                btn(144, 64, 100, 14, "Rendre braquable", Btn.GREEN, () -> send("vol.store.add", null, in("volStore"), "", volStation ? 1 : 0));
+                btn(248, 64, 128, 14, volStation ? "Type : station-service" : "Type : supérette", Btn.DARK, () -> {
+                    volStation = !volStation;
+                    rebuildWidgets();
+                });
+                List<CompoundTag> st = tags(vol, "Stores");
+                cfgScroll(82, 5, 13, st.size());
+                for (int r = 0; r < 5; r++) {
+                    int i = cfgOffset + r;
+                    if (i >= st.size()) break;
+                    CompoundTag s = st.get(i);
+                    String name = s.getString("Name");
+                    int lock = parseInt(s.getString("Lock"));
+                    listRow(r, 82, 13, name + " · " + (s.getString("Station").equals("true") ? "station-service" : "supérette") + " · "
+                            + s.getString("X") + " " + s.getString("Y") + " " + s.getString("Z") + (lock > 0 ? " · verrouillée " + lock + " min" : ""),
+                            name.equals(volStoreSel), () -> {
+                                volStoreSel = name;
+                                rebuildWidgets();
+                            });
+                }
+                boolean sel = !volStoreSel.isEmpty() && st.stream().anyMatch(s -> s.getString("Name").equals(volStoreSel));
+                btn(8, 150, 90, 14, "Déverrouiller", Btn.DARK, () -> send("vol.store.unlock", null, volStoreSel, "", 0)).enabled(sel);
+                btn(102, 150, 90, 14, "Retirer", Btn.RED, () -> confirmThen("vstore", () -> send("vol.store.remove", null, volStoreSel, "", 0)))
+                        .enabled(sel).selected(confirm.equals("vstore"));
+                btn(196, 150, 90, 14, "Alerte de test", Btn.DARK, () -> send("vol.store.test", null, volStoreSel, "", 0)).enabled(sel);
+                btn(8, 200, 150, 13, "Ajouter l'objet en main", Btn.GREEN, () -> send("vol.weapon", null, "add", "", 0));
+                btn(162, 200, 150, 13, "Retirer l'objet en main", Btn.RED, () -> send("vol.weapon", null, "remove", "", 0));
+            }
+            default -> {
+                List<CompoundTag> cs = tags(vol, "Cases");
+                cfgScroll(52, CF_ROWS, CF_ROW, cs.size());
+                for (int r = 0; r < CF_ROWS; r++) {
+                    int i = cfgOffset + r;
+                    if (i >= cs.size()) break;
+                    String id = cs.get(i).getString("Id");
+                    btn(326, 52 + r * CF_ROW + 1, 46, 14, "Clore", Btn.RED, () -> confirmThen("vc" + id, () -> send("vol.close", null, id, "", 0)))
+                            .selected(confirm.equals("vc" + id));
+                }
+            }
+        }
+    }
+
+    private static int parseInt(String s) {
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private void renderVol(GuiGraphics g) {
+        if (vol == null) {
+            text(g, "Chargement…", 8, 54, DIM);
+            return;
+        }
+        switch (volPage) {
+            case 0 -> renderCfgSettings(g, vol, volGroup, 66);
+            case 1 -> {
+                textFit(g, "Vendeur visé : " + vol.getString("Aim"), 8, 52, CF_W, DIM);
+                if (tags(vol, "Stores").isEmpty()) text(g, "Aucun magasin braquable pour le moment.", 12, 85, DIM);
+                text(g, "Armes de braquage (objets tenus en main) :", 8, 168, CYAN);
+                ListTag w = vol.getList("Weapons", Tag.TAG_STRING);
+                StringBuilder b = new StringBuilder();
+                for (int i = 0; i < w.size(); i++) b.append(i > 0 ? ", " : "").append(w.getString(i));
+                wrap(g, w.isEmpty() ? "aucune" : b.toString(), 8, 178, CF_W, TEXT, 2);
+            }
+            default -> {
+                List<CompoundTag> cs = tags(vol, "Cases");
+                if (cs.isEmpty()) text(g, "Aucune voiture volée en cours.", 8, 54, DIM);
+                cfgOffset = clamp(cfgOffset, cs.size() - CF_ROWS);
+                for (int r = 0; r < CF_ROWS; r++) {
+                    int i = cfgOffset + r;
+                    if (i >= cs.size()) break;
+                    CompoundTag c = cs.get(i);
+                    int y = 52 + r * CF_ROW;
+                    Btn.rfill(g, left + 8, top + y, left + 8 + CF_W, top + y + 16, 4, PANEL);
+                    String plate = c.getString("Plate");
+                    String a = c.getString("Model") + (plate.isEmpty() ? "" : " (" + plate + ")") + (c.getString("Declared").equals("true") ? " [déclaré]" : "")
+                            + " · " + c.getString("Extra");
+                    textFit(g, a, 14, y + 4, 308, TEXT);
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ Secours
+
+    private void initSecours() {
+        cfgPages(new String[]{"Réglages", "Incendies", "Points de réveil"}, secPage, i -> secPage = i);
+        if (sec == null) return;
+        switch (secPage) {
+            case 0 -> {
+                secGroup = cfgGroups(sec, secGroup, gname -> secGroup = gname);
+                cfgSettings(sec, secGroup, "sec.set", 66);
+            }
+            case 1 -> {
+                box("secSite", 8, 66, 120, "Nom du site", 24);
+                btn(132, 66, 130, 14, "Définir à ma position", Btn.GREEN, () -> send("sec.site.add", null, in("secSite"), "", 0));
+                List<CompoundTag> st = tags(sec, "Sites");
+                cfgScroll(84, 6, 13, st.size());
+                for (int r = 0; r < 6; r++) {
+                    int i = cfgOffset + r;
+                    if (i >= st.size()) break;
+                    CompoundTag s = st.get(i);
+                    String name = s.getString("Name");
+                    listRow(r, 84, 13, name + " · " + s.getString("X") + " " + s.getString("Y") + " " + s.getString("Z"), name.equals(siteSel), () -> {
+                        siteSel = name;
+                        rebuildWidgets();
+                    });
+                }
+                boolean sel = st.stream().anyMatch(s -> s.getString("Name").equals(siteSel));
+                btn(8, 166, 90, 14, "Supprimer", Btn.RED, () -> confirmThen("ssite", () -> send("sec.site.del", null, siteSel, "", 0)))
+                        .enabled(sel).selected(confirm.equals("ssite"));
+                btn(102, 166, 120, 14, "Déclencher ce site", Btn.CYAN, () -> send("sec.fire.start", null, siteSel, "", 0)).enabled(sel);
+                btn(226, 166, 130, 14, "Déclencher au hasard", Btn.DARK, () -> send("sec.fire.start", null, "", "", 0)).enabled(!st.isEmpty());
+                btn(8, 184, 120, 14, "Tout éteindre", Btn.RED, () -> confirmThen("sfire", () -> send("sec.fire.stop")))
+                        .selected(confirm.equals("sfire"));
+            }
+            default -> {
+                int nh = tags(sec, "Hosp").size(), nu = tags(sec, "Urg").size();
+                btn(8, 50, 110, 13, "Hôpital (" + nh + ")", Btn.DARK, () -> {
+                    secSpawnUrg = false;
+                    resetCfgList();
+                    rebuildWidgets();
+                }).selected(!secSpawnUrg);
+                btn(122, 50, 110, 13, "Urgences (" + nu + ")", Btn.DARK, () -> {
+                    secSpawnUrg = true;
+                    resetCfgList();
+                    rebuildWidgets();
+                }).selected(secSpawnUrg);
+                box("secSpawn", 8, 68, 120, "Nom (facultatif)", 24);
+                btn(132, 68, 150, 14, "Ajouter à ma position", Btn.GREEN, () -> send("sec.spawn.add", null, in("secSpawn"), secSpawnUrg ? "u" : "h", 0));
+                List<CompoundTag> st = tags(sec, secSpawnUrg ? "Urg" : "Hosp");
+                cfgScroll(86, 6, 13, st.size());
+                for (int r = 0; r < 6; r++) {
+                    int i = cfgOffset + r;
+                    if (i >= st.size()) break;
+                    CompoundTag s = st.get(i);
+                    String name = s.getString("Name");
+                    listRow(r, 86, 13, name + " · " + s.getString("X") + " " + s.getString("Y") + " " + s.getString("Z"), name.equals(spawnSel), () -> {
+                        spawnSel = name;
+                        rebuildWidgets();
+                    });
+                }
+                boolean sel = st.stream().anyMatch(s -> s.getString("Name").equals(spawnSel));
+                btn(8, 168, 90, 14, "Supprimer", Btn.RED, () -> confirmThen("sspawn", () -> send("sec.spawn.del", null, spawnSel, secSpawnUrg ? "u" : "h", 0)))
+                        .enabled(sel).selected(confirm.equals("sspawn"));
+            }
+        }
+    }
+
+    private void renderSecours(GuiGraphics g) {
+        if (sec == null) {
+            text(g, "Chargement…", 8, 54, DIM);
+            return;
+        }
+        switch (secPage) {
+            case 0 -> renderCfgSettings(g, sec, secGroup, 66);
+            case 1 -> {
+                text(g, "Incendies en cours : " + sec.getInt("Incidents") + " · sites : " + tags(sec, "Sites").size(), 8, 52, WHITE);
+                if (tags(sec, "Sites").isEmpty()) text(g, "Aucun site : place-toi à l'endroit voulu puis donne un nom.", 12, 87, DIM);
+                text(g, "Feu déclenché sur ces sites quand des pompiers sont en service.", 8, 202, DIM);
+            }
+            default -> {
+                                if (tags(sec, secSpawnUrg ? "Urg" : "Hosp").isEmpty()) text(g, "Aucun point : place-toi à l'endroit voulu.", 12, 89, DIM);
+                wrap(g, "Réveil après un coma ou une mort grave. Sans nom : nom automatique ; même nom = point déplacé.", 8, 186, CF_W, DIM, 2);
+            }
+        }
+    }
+
     // ================================================================== journal
 
     private static final int LOG_Y = 52, LOG_ROW = 11, LOG_ROWS = 15, LOG_W = W - 32;
@@ -1302,6 +1656,7 @@ public class AdminScreen extends Screen {
                     if (page >= 0 && page < props.getInt("Pages")) propList(page);
                 }
             }
+            case VOL, SEC -> cfgOffset = clamp(cfgOffset + d, cfgMax);
             case LOGS -> logOffset = clamp(logOffset + d * 3, filteredLogs().size() - LOG_ROWS);
         }
         rebuildWidgets();
@@ -1518,10 +1873,11 @@ public class AdminScreen extends Screen {
         Btn.rfill(g, left, top, left + W, top + H, 7, BLUE);
         RenderSystem.enableBlend();
         g.blit(LOGO, left + 8, top + 4, 24, 24, 0, 0, 256, 256, 256, 256);
-        int titleW = Math.max(40, headLeft - 38 - 4);
-        drawScaled(g, bold(titleW < 70 ? "ADMIN" : "PANNEAU ADMIN"), left + 38, top + 7, 1.3f, titleW, WHITE);
+        int titleW = Math.min(font.width(bold("PANNEAU ADMIN")) + 12, Math.max(40, headLeft - 38 - 40));
+        drawScaled(g, bold("PANNEAU ADMIN"), left + 38, top + 5, 1.15f, titleW, WHITE);
         String role = home.getString("Role");
-        textFit(g, role.isEmpty() ? "MineNorthRP" : role, 38, 20, titleW, CYAN);
+        int roleX = 38 + titleW + 8;
+        textFit(g, role.isEmpty() ? "MineNorthRP" : role, roleX, 6, headLeft - 4 - roleX, CYAN);
 
         ItemStack tip = null;
         String textTip = null;
@@ -1534,6 +1890,8 @@ public class AdminScreen extends Screen {
             case STAFF -> renderStaff(g, mx, my);
             case ETAT -> renderEtat(g);
             case PROPS -> textTip = renderProps(g, mx, my);
+            case VOL -> renderVol(g);
+            case SEC -> renderSecours(g);
             case LOGS -> textTip = renderLogs(g, mx, my);
         }
         if (!message.isEmpty()) textFit(g, message, 8, H - 12, W - 16, messageOk ? OK : WARN);

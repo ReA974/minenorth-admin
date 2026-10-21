@@ -75,6 +75,20 @@ public final class AdminService {
                     }
                     PropertiesModule.handle(actor, acc, m);
                 }
+                case "vol" -> {
+                    if (!acc.has(Perm.VOL_ADMIN) || !Mods.vol()) {
+                        deny(actor);
+                        return;
+                    }
+                    ConfigModules.vol(actor, m);
+                }
+                case "sec" -> {
+                    if (!acc.has(Perm.SECOURS_ADMIN) || !Mods.secours()) {
+                        deny(actor);
+                        return;
+                    }
+                    ConfigModules.secours(actor, m);
+                }
                 case "staff", "role", "member" -> {
                     if (!acc.has(Perm.STAFF)) {
                         deny(actor);
@@ -119,6 +133,34 @@ public final class AdminService {
 
     // ================================================================== accueil
 
+    /** Ouvre le panneau directement sur un onglet (appelé par les mods Vol et Secours à la place de leurs anciens écrans). */
+    public static boolean openTab(ServerPlayer actor, String tab, int page) {
+        Access acc = Access.of(actor);
+        boolean ok = tab.equals("vol") ? acc.has(Perm.VOL_ADMIN) && Mods.vol() : tab.equals("sec") && acc.has(Perm.SECOURS_ADMIN) && Mods.secours();
+        if (!acc.has(Perm.PANEL) || !ok) {
+            actor.sendSystemMessage(net.minecraft.network.chat.Component.literal("§cTu n'as pas la permission d'ouvrir ce menu d'administration."));
+            return true;
+        }
+        sendHomeTab(actor, acc, tab, page);
+        if (tab.equals("vol")) ConfigModules.vol(actor, new Req("vol", Net.NIL, "", "", 0));
+        else ConfigModules.secours(actor, new Req("sec", Net.NIL, "", "", 0));
+        return true;
+    }
+
+    private static void sendHomeTab(ServerPlayer actor, Access acc, String tab, int page) {
+        homeTab = tab;
+        homePage = page;
+        try {
+            sendHome(actor, acc, true, "");
+        } finally {
+            homeTab = "";
+            homePage = 0;
+        }
+    }
+
+    private static String homeTab = "";
+    private static int homePage;
+
     private static void sendHome(ServerPlayer actor, Access acc, boolean open, String msg) {
         MinecraftServer s = actor.server;
         CompoundTag t = new CompoundTag();
@@ -137,7 +179,13 @@ public final class AdminService {
         t.putBoolean("Etat", Mods.etat());
         t.putBoolean("Entreprises", Mods.entreprises());
         t.putBoolean("Portes", Mods.portes());
+        t.putBoolean("Vol", Mods.vol());
+        t.putBoolean("SecoursCfg", Mods.secours());
         t.putBoolean("StaffMode", StaffMode.is(actor));
+        if (!homeTab.isEmpty()) {
+            t.putString("Tab", homeTab);
+            t.putInt("Page", homePage);
+        }
         // Liste triée sur le nom affiché (nom RP), joueurs connectés d'abord.
         java.util.List<CompoundTag> rows = new java.util.ArrayList<>();
         for (Players.Known k : Players.all(s)) {

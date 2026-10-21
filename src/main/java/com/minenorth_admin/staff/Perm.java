@@ -28,7 +28,9 @@ public enum Perm {
     STAFF_MODE("Mode staff (vanish + créatif)"),
     MODERATE("Sanctions : kick / ban"),
     PROPRIETES_VIEW("Propriétés : voir"),
-    PROPRIETES_EDIT("Propriétés : attribuer / vendre / libérer");
+    PROPRIETES_EDIT("Propriétés : attribuer / vendre / libérer"),
+    VOL_ADMIN("Vol : réglages / braquages / dossiers"),
+    SECOURS_ADMIN("Secours : réglages / incendies / réveil");
 
     public final String label;
 

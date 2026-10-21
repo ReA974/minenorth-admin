@@ -38,6 +38,10 @@ public final class Mods {
         return ModList.get().isLoaded("minenorthsecours");
     }
 
+    public static boolean vol() {
+        return ModList.get().isLoaded("minenorthvol");
+    }
+
     public static boolean portes() {
         return ModList.get().isLoaded("minenorthportes");
     }
