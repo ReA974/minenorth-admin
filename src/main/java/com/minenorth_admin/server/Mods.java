@@ -37,4 +37,8 @@ public final class Mods {
     public static boolean secours() {
         return ModList.get().isLoaded("minenorthsecours");
     }
+
+    public static boolean portes() {
+        return ModList.get().isLoaded("minenorthportes");
+    }
 }

@@ -41,12 +41,18 @@ public class AdminScreen extends Screen {
     static final int TEXT = 0xFFCFE3FF, DIM = 0xFF8FA8E0, WARN = 0xFFFFE066, OK = 0xFF5FE0A0, BAD = 0xFFFF5F6B, WHITE = 0xFFFFFFFF;
     static final int CYAN = Btn.CYAN;
 
-    enum Tab { PLAYERS, STAFF, ETAT, LOGS }
+    enum Tab { PLAYERS, STAFF, ETAT, PROPS, LOGS }
 
     // ------------------------------------------------------------------ état
     private Tab tab = Tab.PLAYERS;
     private CompoundTag home = new CompoundTag();
     @Nullable private CompoundTag player, staff, logs, etat;
+    // propriétés : liste paginée, fiche ouverte, filtres
+    @Nullable private CompoundTag props, prop;
+    private String propFilter = "all";
+    private int propPage, propLogOffset, propsSecSel = -1, propsSecOffset;
+    private boolean propLog;
+    @Nullable private UUID propPlayer;
     private final Set<String> perms = new HashSet<>();
     private boolean owner;
     private String message = "";
@@ -121,6 +127,7 @@ public class AdminScreen extends Screen {
                 }
                 if (!has("LOGS") && tab == Tab.LOGS) tab = Tab.PLAYERS;
                 if ((!has("ETAT_VIEW") || !home.getBoolean("Etat")) && tab == Tab.ETAT) tab = Tab.PLAYERS;
+                if ((!has("PROPRIETES_VIEW") || !home.getBoolean("Portes")) && tab == Tab.PROPS) tab = Tab.PLAYERS;
             }
             case "player" -> {
                 UUID id = d.getUUID("Id");
@@ -131,6 +138,7 @@ public class AdminScreen extends Screen {
                     gradeSel = -1;
                     garageSel = -1;
                     invSel = -1;
+                    propsSecSel = -1;
                 }
                 player = d;
                 selected = id;
@@ -139,6 +147,15 @@ public class AdminScreen extends Screen {
             case "staff" -> staff = d;
             case "logs" -> logs = d;
             case "etat" -> etat = d;
+            case "props" -> {
+                props = d;
+                tab = Tab.PROPS;
+            }
+            case "prop" -> {
+                prop = d.getBoolean("Gone") ? null : d;
+                tab = Tab.PROPS;
+                if (prop == null && props == null) send("props.list", propPlayer, "", propFilter, 0);
+            }
             default -> {}
         }
         if (!v.message().isEmpty()) {
@@ -150,8 +167,8 @@ public class AdminScreen extends Screen {
     }
 
     private void resetSelections() {
-        permisSel = garageSel = invSel = gradeSel = -1;
-        permisOffset = garageOffset = policeOffset = secoursOffset = gradeOffset = 0;
+        permisSel = garageSel = invSel = gradeSel = propsSecSel = -1;
+        permisOffset = garageOffset = policeOffset = secoursOffset = gradeOffset = propsSecOffset = 0;
         confirm = "";
     }
 
@@ -256,6 +273,13 @@ public class AdminScreen extends Screen {
                 rebuildWidgets();
             }, tab == Tab.ETAT);
         }
+        if (has("PROPRIETES_VIEW") && home.getBoolean("Portes")) {
+            x = head(x, "Propriétés", () -> {
+                tab = Tab.PROPS;
+                if (props == null) send("props.list", propPlayer, "", propFilter, 0);
+                rebuildWidgets();
+            }, tab == Tab.PROPS);
+        }
         x = head(x, "Joueurs", () -> {
             tab = Tab.PLAYERS;
             send("home");
@@ -271,15 +295,16 @@ public class AdminScreen extends Screen {
             case PLAYERS -> initPlayers();
             case STAFF -> initStaff();
             case ETAT -> initEtat();
+            case PROPS -> initProps();
             case LOGS -> initLogs();
         }
     }
 
     /** Onglet d'en-tête aligné à droite (largeur selon le texte) ; renvoie le bord gauche pour le suivant. */
     private int head(int right, String label, Runnable r, boolean sel) {
-        int w = Math.max(30, font.width(label) + 10);
+        int w = Math.max(28, font.width(label) + 8);
         btn(right - w, 9, w, 14, label, Btn.GHOST, r).selected(sel);
-        return right - w - 3;
+        return right - w - 2;
     }
 
     // ================================================================== onglet joueurs
@@ -307,6 +332,7 @@ public class AdminScreen extends Screen {
         if (home.getBoolean("Police") && has("POLICE_VIEW")) s.add("police");
         if (home.getBoolean("Secours") && has("SECOURS_VIEW")) s.add("secours");
         if (home.getBoolean("Grades") && has("GRADE_VIEW")) s.add("grade");
+        if (home.getBoolean("Portes") && has("PROPRIETES_VIEW")) s.add("props");
         if (has("INV_VIEW")) s.add("inv");
         if (has("MODERATE")) s.add("mod");
         return s;
@@ -321,6 +347,7 @@ public class AdminScreen extends Screen {
             case "secours" -> "Pompiers";
             case "grade" -> "Grade";
             case "mod" -> "Sanctions";
+            case "props" -> "Propriétés";
             default -> "Inventaire";
         };
     }
@@ -360,7 +387,7 @@ public class AdminScreen extends Screen {
         for (String s : secs) {
             String label = sectionLabel(s);
             if (font.width(label) > tabW - 4) label = s.equals("inv") ? "Inv." : s.equals("mod") ? "Sanc." : s.equals("secours") ? "Pomp."
-                    : s.equals("grade") ? "Grd." : s.equals("police") ? "Pol." : s.equals("garage") ? "Gar." : s.equals("permis") ? "Perm." : s.equals("bank") ? "Banq." : label;
+                    : s.equals("grade") ? "Grd." : s.equals("props") ? "Prop." : s.equals("police") ? "Pol." : s.equals("garage") ? "Gar." : s.equals("permis") ? "Perm." : s.equals("bank") ? "Banq." : label;
             btn(x, 60, tabW, 14, label, Btn.DARK, () -> {
                 confirm = "";
                 openPlayer(selected, s);
@@ -378,6 +405,7 @@ public class AdminScreen extends Screen {
             case "grade" -> initGrade(data);
             case "inv" -> initInv(data);
             case "mod" -> initMod(data);
+            case "props" -> initPropsSection(data);
             default -> {}
         }
     }
@@ -911,6 +939,282 @@ public class AdminScreen extends Screen {
         }
     }
 
+    // ================================================================== propriétés
+
+    private static final String[][] PROP_FILTERS = {{"all", "Tous"}, {"free", "Libres"}, {"occupied", "Occupés"}, {"sale", "À vendre"},
+            {"rent", "À louer"}, {"noowner", "Sans propriétaire"}, {"expiring", "Location échue < 48 h"}};
+    private static final int PR_Y = 52, PR_ROW = 12, PR_ROWS = 13, PR_W = W - 16;
+    private static final int PLOG_ROWS = 14, PLOG_ROW = 11;
+
+    private String propFilterLabel() {
+        for (String[] f : PROP_FILTERS) if (f[0].equals(propFilter)) return f[1];
+        return "Tous";
+    }
+
+    private void propList(int page) {
+        propPage = Math.max(0, page);
+        send("props.list", propPlayer, in("propSearch"), propFilter, propPage);
+    }
+
+    private void propOpen(CompoundTag it) {
+        send("props.open", null, it.getString("Dim") + "\t" + it.getString("Name"), "", 0);
+    }
+
+    private void propAct(String sub, String b, long n) {
+        CompoundTag it = prop.getCompound("Item");
+        send("props." + sub, null, it.getString("Dim") + "\t" + it.getString("Name"), b, n);
+    }
+
+    private static String propStatus(CompoundTag it) {
+        boolean sale = it.getString("Mode").equals("SALE");
+        if (it.getBoolean("Rented")) return "Loué";
+        if (it.getBoolean("Occupied")) return sale ? "Occupé · vente" : "Occupé";
+        if (sale) return "À vendre";
+        if (it.getString("Mode").equals("RENTAL")) return "À louer";
+        return "Libre";
+    }
+
+    private static int propStatusColor(CompoundTag it) {
+        if (it.getBoolean("Rented") || it.getBoolean("Occupied")) return WARN;
+        if (!it.getString("Mode").equals("NONE")) return CYAN;
+        return OK;
+    }
+
+    private static String propPrice(CompoundTag it) {
+        return switch (it.getString("Mode")) {
+            case "SALE" -> euros(it.getLong("Price"));
+            case "RENTAL" -> euros(it.getLong("Price")) + " / " + it.getInt("Days") + " j";
+            default -> it.getLong("Purchase") > 0 ? "acheté " + euros(it.getLong("Purchase")) : "—";
+        };
+    }
+
+    private static String propHolder(CompoundTag it) {
+        if (it.getBoolean("Rented") && !it.getString("Renter").isEmpty()) return it.getString("Renter") + " (loc.)";
+        return it.getString("Owner").isEmpty() ? "—" : it.getString("Owner");
+    }
+
+    private static String dateTime(long ms) {
+        return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm").format(new java.util.Date(ms));
+    }
+
+    private void initProps() {
+        if (prop != null) {
+            initPropDetail();
+            return;
+        }
+        box("propSearch", 8, 34, 118, "Nom, titulaire, catégorie…", 40);
+        btn(129, 34, 44, 14, "Chercher", Btn.CYAN, () -> propList(0));
+        btn(176, 34, 124, 14, "Filtre : " + propFilterLabel(), Btn.DARK, () -> {
+            int i = 0;
+            for (int k = 0; k < PROP_FILTERS.length; k++) if (PROP_FILTERS[k][0].equals(propFilter)) i = k;
+            propFilter = PROP_FILTERS[(i + 1) % PROP_FILTERS.length][0];
+            propList(0);
+        });
+        btn(303, 34, 60, 14, "Actualiser", Btn.DARK, () -> propList(propPage));
+        if (propPlayer != null) {
+            btn(366, 34, 26, 14, "✖", Btn.RED, () -> {
+                propPlayer = null;
+                propList(0);
+            });
+        }
+        if (props == null) return;
+        int page = props.getInt("Page"), pages = props.getInt("Pages");
+        btn(8, 210, 26, 12, "◄", Btn.DARK, () -> propList(page - 1)).enabled(page > 0);
+        btn(37, 210, 26, 12, "►", Btn.DARK, () -> propList(page + 1)).enabled(page + 1 < pages);
+    }
+
+    @Nullable
+    private String renderProps(GuiGraphics g, int mx, int my) {
+        if (prop != null) return renderPropDetail(g, mx, my);
+        panel(g, 8, PR_Y - 1, PR_W, PR_ROWS * PR_ROW + 2);
+        if (props == null) {
+            text(g, "Chargement…", 12, PR_Y + 3, DIM);
+            return null;
+        }
+        ListTag items = props.getList("Items", Tag.TAG_COMPOUND);
+        String tip = null;
+        for (int i = 0; i < items.size() && i < PR_ROWS; i++) {
+            CompoundTag it = items.getCompound(i);
+            int y = PR_Y + i * PR_ROW;
+            boolean in = inRow(mx, my, 8, y, PR_W, PR_ROW);
+            if (in) Btn.rfill(g, left + 9, top + y, left + 7 + PR_W, top + y + PR_ROW, 3, HOVER);
+            textFit(g, it.getString("Name"), 12, y + 2, 100, WHITE);
+            textFit(g, it.getString("CatShort"), 116, y + 2, 50, DIM);
+            textFit(g, propStatus(it), 168, y + 2, 62, propStatusColor(it));
+            textFit(g, propPrice(it), 232, y + 2, 70, TEXT);
+            textFit(g, propHolder(it), 306, y + 2, 82, TEXT);
+            if (in) tip = it.getString("Name") + " · " + it.getString("Cat") + " · " + propStatus(it) + " · " + propPrice(it) + " · " + propHolder(it);
+        }
+        if (items.isEmpty()) text(g, "Aucune propriété ne correspond.", 12, PR_Y + 3, DIM);
+        String who = propPlayer != null && props.contains("Player") ? " · de " + props.getString("Player") : "";
+        textFit(g, "Page " + (props.getInt("Page") + 1) + "/" + props.getInt("Pages") + " · " + props.getInt("Matches") + " résultat(s)" + who, 68, 212, 150, DIM);
+        textFit(g, props.getInt("Total") + " propriétés · " + props.getInt("Free") + " libres · " + props.getInt("Occupied") + " occupées · "
+                + props.getInt("Sale") + " à vendre · " + props.getInt("Expiring") + " échéance < 48 h", 222, 212, 170, DIM);
+        return tip;
+    }
+
+    private void initPropDetail() {
+        CompoundTag it = prop.getCompound("Item");
+        boolean edit = has("PROPRIETES_EDIT");
+        boolean occupied = it.getBoolean("Occupied");
+        btn(330, 34, 62, 12, "← Retour", Btn.DARK, () -> {
+            prop = null;
+            propLog = false;
+            propList(propPage);
+            rebuildWidgets();
+        });
+        btn(262, 34, 64, 12, "Actualiser", Btn.GHOST, () -> propOpen(it));
+        int logs = prop.getList("Log", Tag.TAG_COMPOUND).size();
+        if (propLog) {
+            int max = Math.max(0, logs - PLOG_ROWS);
+            btn(W - 20, PR_Y, 12, PLOG_ROWS * PLOG_ROW / 2 - 1, "▲", Btn.DARK, () -> propLogOffset = Math.max(0, propLogOffset - PLOG_ROWS)).enabled(propLogOffset > 0);
+            btn(W - 20, PR_Y + PLOG_ROWS * PLOG_ROW / 2 + 1, 12, PLOG_ROWS * PLOG_ROW / 2 - 1, "▼", Btn.DARK,
+                    () -> propLogOffset = Math.min(max, propLogOffset + PLOG_ROWS)).enabled(propLogOffset < max);
+            btn(190, 34, 68, 12, "Fiche", Btn.CYAN, () -> {
+                propLog = false;
+                rebuildWidgets();
+            });
+            return;
+        }
+        // joueur : propriétaire / locataire / colocataires
+        box("ppPlayer", 8, 118, 128, "Joueur : nom RP, pseudo, UUID", 40);
+        btn(139, 117, 70, 16, "Propriétaire", Btn.GREEN, () -> {
+            if (occupied) confirmThen("pOwner", () -> propAct("setOwner", in("ppPlayer"), 1));
+            else propAct("setOwner", in("ppPlayer"), 1);
+        }).enabled(edit).selected(confirm.equals("pOwner"));
+        btn(212, 117, 58, 16, "Locataire", Btn.DARK, () -> {
+            long d = in("ppDays").isEmpty() ? it.getInt("Days") : parseLong(in("ppDays"));
+            propAct("setRenter", in("ppPlayer"), d);
+        }).enabled(edit);
+        btn(273, 117, 56, 16, "+ Coloc.", Btn.DARK, () -> propAct("addTrusted", in("ppPlayer"), 0)).enabled(edit);
+        btn(332, 117, 60, 16, "− Coloc.", Btn.DARK, () -> propAct("removeTrusted", in("ppPlayer"), 0)).enabled(edit);
+        // vente / location / prix
+        box("ppPrice", 8, 138, 64, "Prix €", 14);
+        box("ppDays", 75, 138, 34, "Jours", 3);
+        btn(112, 137, 72, 16, "Mettre en vente", Btn.GREEN, () -> priceAction("sale", "")).enabled(edit);
+        btn(187, 137, 80, 16, "Mettre en location", Btn.GREEN, () -> priceAction("rent", in("ppDays"))).enabled(edit);
+        btn(270, 137, 64, 16, "Prix fiche", Btn.CYAN, () -> priceAction("price", "")).enabled(edit);
+        btn(337, 137, 55, 16, "Retirer fiche", Btn.DARK, () -> propAct("unlist", "", 0)).enabled(edit);
+        // catégorie
+        ListTag cats = prop.getList("Cats", Tag.TAG_COMPOUND);
+        for (int i = 0; i < cats.size(); i++) {
+            CompoundTag c = cats.getCompound(i);
+            String id = c.getString("Id");
+            btn(8 + (i % 4) * 64, 158 + (i / 4) * 14, 62, 12, c.getString("Short"), Btn.DARK, () -> propAct("category", id, 0))
+                    .enabled(edit && !id.equals(it.getString("CatId"))).selected(id.equals(it.getString("CatId")));
+        }
+        btn(270, 158, 122, 12, "Se téléporter sur place", Btn.CYAN, () -> propAct("tp", "", 0)).enabled(has("TELEPORT"));
+        btn(270, 172, 122, 12, "Journal (" + logs + ")", Btn.DARK, () -> {
+            propLog = true;
+            propLogOffset = 0;
+            rebuildWidgets();
+        });
+        // actions destructives : double clic
+        btn(8, 190, 112, 14, "Expulser l'occupant", Btn.RED, () -> confirmThen("pEvict", () -> propAct("evict", "", 1)))
+                .enabled(edit && occupied).selected(confirm.equals("pEvict"));
+        btn(123, 190, 112, 14, "Libérer le bien", Btn.RED, () -> confirmThen("pFree", () -> propAct("free", "", 1))).enabled(edit)
+                .selected(confirm.equals("pFree"));
+    }
+
+    private static long parseLong(String s) {
+        try { return Long.parseLong(s.trim()); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private void priceAction(String sub, String b) {
+        long c = cents(in("ppPrice"));
+        if (c <= 0) {
+            message = "Prix invalide (ex. 150000 ou 1500,50).";
+            messageOk = false;
+            return;
+        }
+        if (sub.equals("rent") && parseLong(b) <= 0) {
+            message = "Indique la durée de location en jours (case Jours).";
+            messageOk = false;
+            return;
+        }
+        propAct(sub, b, c);
+    }
+
+    @Nullable
+    private String renderPropDetail(GuiGraphics g, int mx, int my) {
+        CompoundTag it = prop.getCompound("Item");
+        drawScaled(g, bold(it.getString("Name")), left + 8, top + 34, 1.2f, 180, WHITE);
+        if (propLog) {
+            ListTag lg = prop.getList("Log", Tag.TAG_COMPOUND);
+            propLogOffset = clamp(propLogOffset, lg.size() - PLOG_ROWS);
+            panel(g, 8, PR_Y - 1, W - 32, PLOG_ROWS * PLOG_ROW + 2);
+            String tip = null;
+            for (int i = 0; i < PLOG_ROWS; i++) {
+                int idx = propLogOffset + i;
+                if (idx >= lg.size()) break;
+                CompoundTag c = lg.getCompound(idx);
+                int y = PR_Y + i * PLOG_ROW;
+                boolean in = inRow(mx, my, 8, y, W - 32, PLOG_ROW);
+                if (in) Btn.rfill(g, left + 8, top + y, left + 8 + W - 32, top + y + PLOG_ROW, 2, HOVER);
+                text(g, c.getString("D"), 11, y + 2, DIM);
+                int x = 11 + font.width(c.getString("D")) + 6;
+                textFit(g, c.getString("X"), x, y + 2, W - 32 - x + 4, TEXT);
+                if (in && font.width(c.getString("X")) > W - 32 - x + 4) tip = c.getString("D") + "  " + c.getString("X");
+            }
+            if (lg.isEmpty()) text(g, "Aucun événement enregistré pour ce bien.", 12, PR_Y + 3, DIM);
+            textFit(g, "Achats, ventes, locations, actions du staff, ouvertures par un tiers (100 derniers).", 8, PR_Y + PLOG_ROWS * PLOG_ROW + 4, W - 16, DIM);
+            return tip;
+        }
+        String dimName = it.getString("Dim").replace("minecraft:", "");
+        textFit(g, it.getString("Cat") + " · " + it.getInt("Doors") + " porte(s) · " + dimName + " " + it.getInt("X") + " " + it.getInt("Y") + " " + it.getInt("Z"), 8, 50, W - 16, TEXT);
+        text(g, "Statut : " + propStatus(it) + (it.getString("Catalogue").isEmpty() ? "" : " · catalogue « " + it.getString("Catalogue") + " »"), 8, 61, propStatusColor(it));
+        String owner = it.getString("Owner");
+        text(g, "Propriétaire : " + (owner.isEmpty() ? "aucun" : owner), 8, 72, owner.isEmpty() ? DIM : TEXT);
+        String renter = it.getString("Renter");
+        text(g, "Locataire : " + (renter.isEmpty() ? "aucun" : renter + " · jusqu'au " + dateTime(it.getLong("Expiry"))), 8, 83, renter.isEmpty() ? DIM : TEXT);
+        String fiche = switch (it.getString("Mode")) {
+            case "SALE" -> "en vente à " + euros(it.getLong("Price"));
+            case "RENTAL" -> "en location : " + euros(it.getLong("Price")) + " pour " + it.getInt("Days") + " jour(s)";
+            default -> "aucune fiche de vente ou de location";
+        };
+        text(g, "Fiche : " + fiche + (it.getLong("Purchase") > 0 ? " · prix d'achat " + euros(it.getLong("Purchase")) : ""), 8, 94, TEXT);
+        ListTag tr = prop.getList("TrustedList", Tag.TAG_COMPOUND);
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < tr.size(); i++) names.append(i > 0 ? ", " : "").append(tr.getCompound(i).getString("Name"));
+        String coloc = "Colocataires (" + tr.size() + ") : " + (tr.isEmpty() ? "aucun" : names);
+        text(g, coloc, 8, 105, tr.isEmpty() ? DIM : TEXT);
+        text(g, "Colocataires = joueurs de confiance du titulaire (valables pour tous ses biens).", 8, 208, DIM);
+        text(g, "Libérer : plus de propriétaire ni locataire, fiche et serrures effacées, droits WorldGuard retirés.", 8, 217, DIM);
+        if (!has("PROPRIETES_EDIT")) text(g, "Lecture seule (pas de droit de modification).", 240, 192, DIM);
+        return inRow(mx, my, 8, 105, W - 16, 9) && font.width(coloc) > W - 16 ? coloc : null;
+    }
+
+    // ------------------------------------------------------------------ fiche joueur : section « Propriétés »
+
+    private void initPropsSection(CompoundTag d) {
+        ListTag items = d.getList("Items", Tag.TAG_COMPOUND);
+        int max = Math.max(0, items.size() - LIST_ROWS);
+        listScroll(items.size(), () -> propsSecOffset = Math.max(0, propsSecOffset - 1), () -> propsSecOffset = Math.min(max, propsSecOffset + 1),
+                propsSecOffset > 0, propsSecOffset < max);
+        btn(RX, 191, 130, 16, "Ouvrir la propriété", Btn.CYAN, () -> propOpen(items.getCompound(propsSecSel))).enabled(propsSecSel >= 0 && propsSecSel < items.size());
+        btn(RX + 134, 191, 134, 16, "Voir dans l'onglet Propriétés", Btn.DARK, () -> {
+            propPlayer = selected;
+            propFilter = "all";
+            inputs.remove("propSearch");
+            tab = Tab.PROPS;
+            prop = null;
+            propList(0);
+            rebuildWidgets();
+        });
+    }
+
+    private void renderPropsSection(GuiGraphics g, CompoundTag d, int mx, int my) {
+        ListTag items = d.getList("Items", Tag.TAG_COMPOUND);
+        textFit(g, items.size() + " propriété(s) (propriétaire ou locataire)", RX, 79, RW, items.isEmpty() ? DIM : TEXT);
+        propsSecOffset = clamp(propsSecOffset, items.size() - LIST_ROWS);
+        renderList(g, mx, my, items.size(), propsSecOffset, propsSecSel, i -> {
+            CompoundTag it = items.getCompound(i);
+            return new String[]{it.getString("Name") + " · " + it.getString("CatShort"),
+                    it.getBoolean("AsRenter") ? "locataire" : "propriétaire", it.getBoolean("AsRenter") ? "FFFFE066" : "FF5FE0A0"};
+        });
+        if (items.isEmpty()) text(g, "Aucune propriété à son nom.", RX + 4, LIST_Y + 3, DIM);
+    }
+
     // ================================================================== journal
 
     private static final int LOG_Y = 52, LOG_ROW = 11, LOG_ROWS = 15, LOG_W = W - 32;
@@ -959,6 +1263,7 @@ public class AdminScreen extends Screen {
                     if (section.equals("police")) policeOffset = clamp(policeOffset + d, data.getList("Officers", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("secours")) secoursOffset = clamp(secoursOffset + d, data.getList("Members", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("grade")) gradeOffset = clamp(gradeOffset + d, data.getList("Grades", Tag.TAG_COMPOUND).size() - LIST_ROWS);
+                    if (section.equals("props")) propsSecOffset = clamp(propsSecOffset + d, data.getList("Items", Tag.TAG_COMPOUND).size() - LIST_ROWS);
                     if (section.equals("garage")) garageOffset = clamp(garageOffset + d,
                             data.getList(garageKey(), Tag.TAG_COMPOUND).size() - LIST_ROWS);
                 }
@@ -967,6 +1272,13 @@ public class AdminScreen extends Screen {
                 if (staffMembers) memberOffset = clamp(memberOffset + d, members().size() - ST_ROWS);
                 else if (rx >= 160 && role(roleSel) != null) permOffset = clamp(permOffset + d, (com.minenorth_admin.staff.Perm.values().length + 1) / 2 - PERM_ROWS);
                 else roleOffset = clamp(roleOffset + d, roles().size() - ST_ROWS);
+            }
+            case PROPS -> {
+                if (prop != null && propLog) propLogOffset = clamp(propLogOffset + d * 3, prop.getList("Log", Tag.TAG_COMPOUND).size() - PLOG_ROWS);
+                else if (prop == null && props != null) {
+                    int page = props.getInt("Page") + d;
+                    if (page >= 0 && page < props.getInt("Pages")) propList(page);
+                }
             }
             case LOGS -> logOffset = clamp(logOffset + d * 3, filteredLogs().size() - LOG_ROWS);
         }
@@ -1024,6 +1336,17 @@ public class AdminScreen extends Screen {
                             return true;
                         }
                     }
+                } else if (section.equals("props")) {
+                    int n = data.getList("Items", Tag.TAG_COMPOUND).size();
+                    for (int i = 0; i < LIST_ROWS; i++) {
+                        int idx = propsSecOffset + i;
+                        if (idx < n && inRow(mx, my, RX, LIST_Y + i * LIST_ROW, RW - 14, LIST_ROW)) {
+                            propsSecSel = idx;
+                            confirm = "";
+                            rebuildWidgets();
+                            return true;
+                        }
+                    }
                 } else if (section.equals("garage")) {
                     int n = data.getList(garageKey(), Tag.TAG_COMPOUND).size();
                     for (int i = 0; i < LIST_ROWS; i++) {
@@ -1076,9 +1399,30 @@ public class AdminScreen extends Screen {
                     }
                 }
             }
+            case PROPS -> {
+                if (prop == null && props != null) {
+                    ListTag items = props.getList("Items", Tag.TAG_COMPOUND);
+                    for (int i = 0; i < items.size() && i < PR_ROWS; i++) {
+                        if (inRow(mx, my, 8, PR_Y + i * PR_ROW, PR_W, PR_ROW)) {
+                            propOpen(items.getCompound(i));
+                            return true;
+                        }
+                    }
+                }
+            }
             default -> {}
         }
         return false;
+    }
+
+    @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        // Entrée dans la recherche des propriétés : lance la recherche côté serveur
+        if ((key == 257 || key == 335) && tab == Tab.PROPS && prop == null && boxes.get("propSearch") != null && boxes.get("propSearch").isFocused()) {
+            propList(0);
+            return true;
+        }
+        return super.keyPressed(key, scan, mods);
     }
 
     @Override
@@ -1149,7 +1493,7 @@ public class AdminScreen extends Screen {
         RenderSystem.enableBlend();
         g.blit(LOGO, left + 8, top + 4, 24, 24, 0, 0, 256, 256, 256, 256);
         int titleW = Math.max(40, headLeft - 38 - 4);
-        drawScaled(g, bold("PANNEAU ADMIN"), left + 38, top + 7, 1.3f, titleW, WHITE);
+        drawScaled(g, bold(titleW < 70 ? "ADMIN" : "PANNEAU ADMIN"), left + 38, top + 7, 1.3f, titleW, WHITE);
         String role = home.getString("Role");
         textFit(g, role.isEmpty() ? "MineNorthRP" : role, 38, 20, titleW, CYAN);
 
@@ -1163,6 +1507,7 @@ public class AdminScreen extends Screen {
             }
             case STAFF -> renderStaff(g, mx, my);
             case ETAT -> renderEtat(g);
+            case PROPS -> textTip = renderProps(g, mx, my);
             case LOGS -> textTip = renderLogs(g, mx, my);
         }
         if (!message.isEmpty()) textFit(g, message, 8, H - 12, W - 16, messageOk ? OK : WARN);
@@ -1246,6 +1591,10 @@ public class AdminScreen extends Screen {
             case "inv" -> renderInv(g, d, mx, my);
             case "mod" -> {
                 renderMod(g, d);
+                yield null;
+            }
+            case "props" -> {
+                renderPropsSection(g, d, mx, my);
                 yield null;
             }
             default -> null;

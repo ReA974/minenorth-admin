@@ -68,6 +68,13 @@ public final class AdminService {
                         Net.send(actor, new Net.View("message", new CompoundTag(), "Mets à jour le mod Entreprises (API admin absente).", false));
                     }
                 }
+                case "props" -> {
+                    if (!acc.has(Perm.PROPRIETES_VIEW) || !Mods.portes()) {
+                        deny(actor);
+                        return;
+                    }
+                    PropertiesModule.handle(actor, acc, m);
+                }
                 case "staff", "role", "member" -> {
                     if (!acc.has(Perm.STAFF)) {
                         deny(actor);
@@ -129,6 +136,7 @@ public final class AdminService {
         t.putBoolean("Grades", Mods.grades());
         t.putBoolean("Etat", Mods.etat());
         t.putBoolean("Entreprises", Mods.entreprises());
+        t.putBoolean("Portes", Mods.portes());
         t.putBoolean("StaffMode", StaffMode.is(actor));
         // Liste triée sur le nom affiché (nom RP), joueurs connectés d'abord.
         java.util.List<CompoundTag> rows = new java.util.ArrayList<>();
@@ -160,6 +168,7 @@ public final class AdminService {
             case "grade" -> acc.has(Perm.GRADE_VIEW) && Mods.grades();
             case "inv" -> acc.has(Perm.INV_VIEW);
             case "mod" -> acc.has(Perm.MODERATE);
+            case "props" -> acc.has(Perm.PROPRIETES_VIEW) && Mods.portes();
             default -> false;
         };
     }
@@ -191,6 +200,7 @@ public final class AdminService {
                 case "secours" -> SecoursModule.view(s, id);
                 case "grade" -> GradeModule.view(s, id);
                 case "mod" -> ModModule.view(s, id);
+                case "props" -> PropertiesModule.playerView(s, id);
                 default -> InvModule.view(s, id);
             };
             t.put("Data", data);

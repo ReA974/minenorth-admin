@@ -26,7 +26,9 @@ public enum Perm {
     DELETE("Supprimer un joueur"),
     MAP_PLAYERS("Carte : voir joueurs"),
     STAFF_MODE("Mode staff (vanish + créatif)"),
-    MODERATE("Sanctions : kick / ban");
+    MODERATE("Sanctions : kick / ban"),
+    PROPRIETES_VIEW("Propriétés : voir"),
+    PROPRIETES_EDIT("Propriétés : attribuer / vendre / libérer");
 
     public final String label;
 
