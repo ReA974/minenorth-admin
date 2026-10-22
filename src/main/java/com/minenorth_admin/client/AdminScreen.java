@@ -206,6 +206,78 @@ public class AdminScreen extends Screen {
         send(action, null, "", "", 0);
     }
 
+    // ================================================================== navigation (bouton Retour, Échap)
+
+    /** Photo de l'écran précédent : onglet, fiche joueur, fiche propriété ouverte ou non, journal, page de la liste. */
+    private record Nav(Tab tab, @Nullable UUID selected, String section, boolean propOpen, boolean propLog, int propPage) {}
+
+    private final java.util.ArrayDeque<Nav> history = new java.util.ArrayDeque<>();
+
+    private void pushNav() {
+        history.push(new Nav(tab, selected, section, prop != null, propLog, propPage));
+        while (history.size() > 30) history.removeLast();
+    }
+
+    /** Change d'onglet en gardant l'écran actuel pour « Retour ». */
+    private void goTab(Tab t) {
+        if (t != tab) pushNav();
+        tab = t;
+    }
+
+    private boolean canBack() {
+        return !confirm.isEmpty() || !history.isEmpty();
+    }
+
+    /** Revient d'un cran : annule une confirmation en attente, sinon revient à l'écran précédent. Faux à la racine. */
+    private boolean goBack() {
+        if (!confirm.isEmpty()) {
+            confirm = "";
+            message = "";
+            rebuildWidgets();
+            return true;
+        }
+        if (history.isEmpty()) return false;
+        Nav n = history.pop();
+        message = "";
+        tab = n.tab;
+        propLog = n.propLog;
+        if (!n.propOpen && prop != null) prop = null;
+        if (n.selected == null) {
+            selected = null;
+            player = null;
+        } else {
+            section = n.section;
+            openPlayer(n.selected, n.section);
+        }
+        switch (n.tab) {
+            case PLAYERS -> send("home");
+            case STAFF -> send("staff");
+            case ETAT -> send("etat");
+            case LOGS -> send("logs");
+            case VOL -> send("vol");
+            case SEC -> send("sec");
+            case PROPS -> {
+                if (!n.propOpen) {
+                    propPage = n.propPage;
+                    propList(n.propPage);
+                }
+            }
+        }
+        resetCfgList();
+        rebuildWidgets();
+        return true;
+    }
+
+    private void closePanel() {
+        super.onClose();
+    }
+
+    /** Échap : un cran en arrière ; le panneau ne se ferme qu'à la racine. */
+    @Override
+    public void onClose() {
+        if (!goBack()) super.onClose();
+    }
+
     private void openPlayer(UUID id, String sec) {
         send("player", id, sec, "", 0);
     }
@@ -275,7 +347,7 @@ public class AdminScreen extends Screen {
         List<Boolean> hsel = new ArrayList<>();
         hts.add(new String[]{"Joueurs", "Joueurs"});
         hrs.add(() -> {
-            tab = Tab.PLAYERS;
+            goTab(Tab.PLAYERS);
             send("home");
             rebuildWidgets();
         });
@@ -283,7 +355,7 @@ public class AdminScreen extends Screen {
         if (has("PROPRIETES_VIEW") && home.getBoolean("Portes")) {
             hts.add(new String[]{"Propriétés", "Propr."});
             hrs.add(() -> {
-                tab = Tab.PROPS;
+                goTab(Tab.PROPS);
                 if (props == null) send("props.list", propPlayer, "", propFilter, 0);
                 rebuildWidgets();
             });
@@ -292,7 +364,7 @@ public class AdminScreen extends Screen {
         if (has("ETAT_VIEW") && home.getBoolean("Etat")) {
             hts.add(new String[]{"État", "État"});
             hrs.add(() -> {
-                tab = Tab.ETAT;
+                goTab(Tab.ETAT);
                 send("etat");
                 rebuildWidgets();
             });
@@ -301,7 +373,7 @@ public class AdminScreen extends Screen {
         if (has("VOL_ADMIN") && home.getBoolean("Vol")) {
             hts.add(new String[]{"Vol", "Vol"});
             hrs.add(() -> {
-                tab = Tab.VOL;
+                goTab(Tab.VOL);
                 resetCfgList();
                 send("vol");
                 rebuildWidgets();
@@ -311,7 +383,7 @@ public class AdminScreen extends Screen {
         if (has("SECOURS_ADMIN") && home.getBoolean("SecoursCfg")) {
             hts.add(new String[]{"Secours", "Secours"});
             hrs.add(() -> {
-                tab = Tab.SEC;
+                goTab(Tab.SEC);
                 resetCfgList();
                 send("sec");
                 rebuildWidgets();
@@ -326,7 +398,7 @@ public class AdminScreen extends Screen {
         if (has("STAFF")) {
             hts.add(new String[]{"Staff", "Staff"});
             hrs.add(() -> {
-                tab = Tab.STAFF;
+                goTab(Tab.STAFF);
                 send("staff");
                 rebuildWidgets();
             });
@@ -335,7 +407,7 @@ public class AdminScreen extends Screen {
         if (has("LOGS")) {
             hts.add(new String[]{"Journal", "Journal"});
             hrs.add(() -> {
-                tab = Tab.LOGS;
+                goTab(Tab.LOGS);
                 send("logs");
                 rebuildWidgets();
             });
@@ -347,8 +419,10 @@ public class AdminScreen extends Screen {
         int x = 38;
         for (int i = 0; i < hts.size(); i++) x = head(x, hts.get(i)[compact ? 1 : 0], hrs.get(i), hsel.get(i));
         int cw = Math.max(28, font.width("Fermer") + 8);
-        headLeft = W - 8 - cw;
-        btn(headLeft, 4, cw, 12, "Fermer", Btn.GHOST, this::onClose);
+        int bw = Math.max(40, font.width("Retour") + 12);
+        headLeft = W - 8 - cw - 4 - bw;
+        btn(headLeft, 4, bw, 12, "Retour", Btn.DARK, this::goBack).enabled(canBack());
+        btn(W - 8 - cw, 4, cw, 12, "Fermer", Btn.GHOST, this::closePanel);
 
         if (has("STAFF_MODE")) {
             boolean sm = home.getBoolean("StaffMode");
@@ -844,6 +918,7 @@ public class AdminScreen extends Screen {
                     .selected(confirm.equals("mdel"));
             UUID ms2 = memberSel;
             btn(258, ST_Y + 120, 134, 16, "Voir sa fiche", Btn.DARK, () -> {
+                pushNav();
                 tab = Tab.PLAYERS;
                 openPlayer(ms2, sections().isEmpty() ? "inv" : sections().get(0));
             });
@@ -1022,6 +1097,7 @@ public class AdminScreen extends Screen {
     }
 
     private void propOpen(CompoundTag it) {
+        if (tab != Tab.PROPS || prop == null) pushNav();
         send("props.open", null, it.getString("Dim") + "\t" + it.getString("Name"), "", 0);
     }
 
@@ -1122,12 +1198,6 @@ public class AdminScreen extends Screen {
         CompoundTag it = prop.getCompound("Item");
         boolean edit = has("PROPRIETES_EDIT");
         boolean occupied = it.getBoolean("Occupied");
-        btn(330, 34, 62, 12, "← Retour", Btn.DARK, () -> {
-            prop = null;
-            propLog = false;
-            propList(propPage);
-            rebuildWidgets();
-        });
         btn(262, 34, 64, 12, "Actualiser", Btn.GHOST, () -> propOpen(it));
         int logs = prop.getList("Log", Tag.TAG_COMPOUND).size();
         if (propLog) {
@@ -1170,6 +1240,7 @@ public class AdminScreen extends Screen {
         }
         btn(270, 158, 122, 12, "Se téléporter sur place", Btn.CYAN, () -> propAct("tp", "", 0)).enabled(has("TELEPORT"));
         btn(270, 172, 122, 12, "Journal (" + logs + ")", Btn.DARK, () -> {
+            pushNav();
             propLog = true;
             propLogOffset = 0;
             rebuildWidgets();
@@ -1258,6 +1329,7 @@ public class AdminScreen extends Screen {
                 propsSecOffset > 0, propsSecOffset < max);
         btn(RX, 191, 130, 16, "Ouvrir la propriété", Btn.CYAN, () -> propOpen(items.getCompound(propsSecSel))).enabled(propsSecSel >= 0 && propsSecSel < items.size());
         btn(RX + 134, 191, 134, 16, "Voir dans Propriétés", Btn.DARK, () -> {
+            pushNav();
             propPlayer = selected;
             propFilter = "all";
             inputs.remove("propSearch");
@@ -1685,6 +1757,7 @@ public class AdminScreen extends Screen {
                     if (inRow(mx, my, PL_X, PL_Y + i * PL_ROW, PL_W, PL_ROW)) {
                         List<String> secs = sections();
                         String sec = secs.contains(section) ? section : secs.isEmpty() ? "inv" : secs.get(0);
+                        if (selected == null) pushNav();
                         openPlayer(ps.get(idx).getUUID("Id"), sec);
                         return true;
                     }
