@@ -30,7 +30,9 @@ public enum Perm {
     PROPRIETES_VIEW("Propriétés : voir"),
     PROPRIETES_EDIT("Propriétés : attribuer / vendre / libérer"),
     VOL_ADMIN("Vol : réglages / braquages / dossiers"),
-    SECOURS_ADMIN("Secours : réglages / incendies / réveil");
+    SECOURS_ADMIN("Secours : réglages / incendies / réveil"),
+    GANGS_VIEW("Gangs : voir"),
+    GANGS_EDIT("Gangs : gérer (membres, comptes, zones, catalogue)");
 
     public final String label;
 

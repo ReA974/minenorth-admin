@@ -41,7 +41,7 @@ public class AdminScreen extends Screen {
     static final int TEXT = 0xFFCFE3FF, DIM = 0xFF8FA8E0, WARN = 0xFFFFE066, OK = 0xFF5FE0A0, BAD = 0xFFFF5F6B, WHITE = 0xFFFFFFFF;
     static final int CYAN = Btn.CYAN;
 
-    enum Tab { PLAYERS, STAFF, ETAT, PROPS, VOL, SEC, LOGS }
+    enum Tab { PLAYERS, STAFF, ETAT, PROPS, GANGS, VOL, SEC, LOGS }
 
     // ------------------------------------------------------------------ état
     private Tab tab = Tab.PLAYERS;
@@ -128,6 +128,7 @@ public class AdminScreen extends Screen {
                 if (!has("LOGS") && tab == Tab.LOGS) tab = Tab.PLAYERS;
                 if ((!has("ETAT_VIEW") || !home.getBoolean("Etat")) && tab == Tab.ETAT) tab = Tab.PLAYERS;
                 if ((!has("PROPRIETES_VIEW") || !home.getBoolean("Portes")) && tab == Tab.PROPS) tab = Tab.PLAYERS;
+                if ((!has("GANGS_VIEW") || !home.getBoolean("Gangs")) && tab == Tab.GANGS) tab = Tab.PLAYERS;
                 if ((!has("VOL_ADMIN") || !home.getBoolean("Vol")) && tab == Tab.VOL) tab = Tab.PLAYERS;
                 if ((!has("SECOURS_ADMIN") || !home.getBoolean("SecoursCfg")) && tab == Tab.SEC) tab = Tab.PLAYERS;
                 // ouverture directe sur un onglet (depuis les mods Vol et Secours)
@@ -168,6 +169,10 @@ public class AdminScreen extends Screen {
             case "sec" -> {
                 sec = d;
                 tab = Tab.SEC;
+            }
+            case "gangs" -> {
+                gangsReceived(d);
+                tab = Tab.GANGS;
             }
             case "props" -> {
                 props = d;
@@ -256,6 +261,7 @@ public class AdminScreen extends Screen {
             case LOGS -> send("logs");
             case VOL -> send("vol");
             case SEC -> send("sec");
+            case GANGS -> send("gangs");
             case PROPS -> {
                 if (!n.propOpen) {
                     propPage = n.propPage;
@@ -361,6 +367,15 @@ public class AdminScreen extends Screen {
             });
             hsel.add(tab == Tab.PROPS);
         }
+        if (has("GANGS_VIEW") && home.getBoolean("Gangs")) {
+            hts.add(new String[]{"Gangs", "Gangs"});
+            hrs.add(() -> {
+                goTab(Tab.GANGS);
+                send("gangs");
+                rebuildWidgets();
+            });
+            hsel.add(tab == Tab.GANGS);
+        }
         if (has("ETAT_VIEW") && home.getBoolean("Etat")) {
             hts.add(new String[]{"État", "État"});
             hrs.add(() -> {
@@ -433,6 +448,7 @@ public class AdminScreen extends Screen {
             case STAFF -> initStaff();
             case ETAT -> initEtat();
             case PROPS -> initProps();
+            case GANGS -> initGangs();
             case VOL -> initVol();
             case SEC -> initSecours();
             case LOGS -> initLogs();
@@ -1352,6 +1368,429 @@ public class AdminScreen extends Screen {
         if (items.isEmpty()) text(g, "Aucune propriété à son nom.", RX + 4, LIST_Y + 3, DIM);
     }
 
+    // ================================================================== onglet Gangs (mod Portes, API par réflexion)
+
+    @Nullable private CompoundTag gangs;
+    private int gangPage, gangSection, gListOff, gSubOff, tListOff, cListOff, catSel = -1;
+    private boolean gangCreate;
+    private String gangSelId = "", terrSel = "", memberSelId = "";
+    private static final int G_ROWS = 12, G_ROW = 13;
+
+    private static String eur(long cents) {
+        return String.format(Locale.FRANCE, "%.2f €", cents / 100.0);
+    }
+
+    private static String eurPlain(long cents) {
+        return cents % 100 == 0 ? Long.toString(cents / 100) : String.format(Locale.ROOT, "%d.%02d", cents / 100, cents % 100);
+    }
+
+    private static String rankName(int r) {
+        return r == 0 ? "chef" : r == 1 ? "lieutenant" : "membre";
+    }
+
+    private static String clock(int sec) {
+        return sec >= 3600 ? String.format("%dh%02d", sec / 3600, (sec % 3600) / 60) : String.format("%d:%02d", sec / 60, sec % 60);
+    }
+
+    /** Euros saisis -> centimes ; -1 si invalide. */
+    private static long gCents(String s) {
+        String t = s == null ? "" : s.trim().replace(',', '.');
+        if (!t.matches("\\d{1,9}(\\.\\d{1,2})?")) return -1;
+        return new BigDecimal(t).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    @Nullable private CompoundTag gSel() {
+        return gangs != null && gangs.contains("Sel") ? gangs.getCompound("Sel") : null;
+    }
+
+    /** Joueur désigné par un nom (nom RP ou pseudo) dans la liste des joueurs connus du panneau ; null si introuvable. */
+    @Nullable private UUID findPlayer(String text) {
+        String n = text.trim().replaceAll("\\s+", " ");
+        if (n.isEmpty()) return null;
+        ListTag ps = home.getList("Players", Tag.TAG_COMPOUND);
+        for (int i = 0; i < ps.size(); i++) {
+            CompoundTag p = ps.getCompound(i);
+            if (p.getString("Name").equalsIgnoreCase(n) || p.getString("Pseudo").equalsIgnoreCase(n)) return p.getUUID("Id");
+        }
+        return null;
+    }
+
+    private void gangFail(String msg) {
+        message = msg;
+        messageOk = false;
+        rebuildWidgets();
+    }
+
+    private void gangPick(CompoundTag c) {
+        gangSelId = c.getString("Id");
+        gangCreate = false;
+        gSubOff = 0;
+        memberSelId = "";
+        inputs.put("gPct", Integer.toString(c.getInt("Pct")));
+        confirm = "";
+        send("gangs.open", null, gangSelId, "", 0);
+    }
+
+    private void gangsReceived(CompoundTag d) {
+        gangs = d;
+        if (d.contains("Sel")) gangSelId = d.getCompound("Sel").getString("Id");
+        else if (!gangSelId.isEmpty()) gangSelId = "";
+        int cats = d.getList("Cat", Tag.TAG_COMPOUND).size();
+        if (catSel >= cats) catSel = -1;
+        boolean terrStill = false;
+        for (CompoundTag t : tags(d, "Terr")) terrStill |= t.getString("Name").equals(terrSel);
+        if (!terrStill) terrSel = "";
+    }
+
+    private void gangScroll(int x, int y, int rows, int pitch, int count, java.util.function.IntSupplier get, java.util.function.IntConsumer set) {
+        if (count <= rows) return;
+        int h = rows * pitch - 2;
+        int max = count - rows;
+        btn(x, y, 12, h / 2 - 1, "▲", Btn.DARK, () -> { set.accept(Math.max(0, get.getAsInt() - 1)); rebuildWidgets(); }).enabled(get.getAsInt() > 0);
+        btn(x, y + h / 2 + 1, 12, h / 2 - 1, "▼", Btn.DARK, () -> { set.accept(Math.min(max, get.getAsInt() + 1)); rebuildWidgets(); }).enabled(get.getAsInt() < max);
+    }
+
+    private void initGangs() {
+        cfgPages(new String[]{"Gangs", "Territoires", "Catalogue"}, gangPage, i -> {
+            gangPage = i;
+            gangCreate = false;
+        });
+        if (gangs == null) return;
+        switch (gangPage) {
+            case 0 -> initGangList();
+            case 1 -> initGangTerr();
+            default -> initGangCat();
+        }
+    }
+
+    private void initGangList() {
+        List<CompoundTag> all = tags(gangs, "Gangs");
+        gListOff = clamp(gListOff, all.size() - G_ROWS);
+        for (int r = 0; r < G_ROWS; r++) {
+            int i = gListOff + r;
+            if (i >= all.size()) break;
+            CompoundTag c = all.get(i);
+            btn(8, 52 + r * G_ROW, all.size() > G_ROWS ? 126 : 140, 12, "[" + c.getString("Tag") + "] " + c.getString("Name") + " · " + c.getInt("Members"), Btn.DARK, () -> gangPick(c))
+                    .selected(c.getString("Id").equals(gangSelId) && !gangCreate);
+        }
+        gangScroll(136, 52, G_ROWS, G_ROW, all.size(), () -> gListOff, v -> gListOff = v);
+        btn(8, 52 + G_ROWS * G_ROW + 2, 140, 13, "+ Créer un gang", Btn.GREEN, () -> {
+            gangCreate = true;
+            confirm = "";
+            rebuildWidgets();
+        }).enabled(has("GANGS_EDIT"));
+        boolean edit = has("GANGS_EDIT");
+        if (gangCreate) {
+            box("gName", 160, 66, 130, "Nom du gang", 20);
+            box("gTag", 294, 66, 40, "TAG", 4);
+            box("gColor", 338, 66, 50, "couleur", 8);
+            box("gChef", 160, 84, 130, "Chef (nom du joueur)", 32);
+            btn(160, 104, 110, 14, "Créer le gang", Btn.GREEN, () -> {
+                UUID chef = findPlayer(in("gChef"));
+                if (chef == null) { gangFail("Chef introuvable : écris son nom RP ou son pseudo (il doit être déjà venu)."); return; }
+                send("gangs.gang.create", chef, in("gName"), in("gTag") + "|" + in("gColor"), 0);
+                gangCreate = false;
+            }).enabled(edit);
+            btn(274, 104, 70, 14, "Annuler", Btn.DARK, () -> {
+                gangCreate = false;
+                rebuildWidgets();
+            });
+            return;
+        }
+        CompoundTag d = gSel();
+        if (d == null) return;
+        String[] secs = {"Membres", "Compte", "Zones et fabrique"};
+        for (int i = 0; i < secs.length; i++) {
+            int idx = i;
+            btn(160 + i * 78, 66, 76, 13, secs[i], Btn.DARK, () -> {
+                gangSection = idx;
+                gSubOff = 0;
+                confirm = "";
+                rebuildWidgets();
+            }).selected(gangSection == i);
+        }
+        btn(318, 52, 70, 12, "Dissoudre", Btn.RED, () -> confirmThen("dissolve", () -> send("gangs.gang.dissolve", null, gangSelId, "", 1))).enabled(edit)
+                .selected(confirm.equals("dissolve"));
+        switch (gangSection) {
+            case 0 -> {
+                box("gMember", 160, 84, 110, "Joueur à ajouter", 32);
+                btn(274, 83, 54, 14, "Ajouter", Btn.GREEN, () -> {
+                    UUID u = findPlayer(in("gMember"));
+                    if (u == null) { gangFail("Joueur introuvable : écris son nom RP ou son pseudo."); return; }
+                    send("gangs.gang.addMember", u, gangSelId, "", 0);
+                }).enabled(edit);
+                List<CompoundTag> ms = tags(d, "Members");
+                gSubOff = clamp(gSubOff, ms.size() - 7);
+                for (int r = 0; r < 7; r++) {
+                    int i = gSubOff + r;
+                    if (i >= ms.size()) break;
+                    CompoundTag m = ms.get(i);
+                    String id = m.getString("Id");
+                    btn(160, 100 + r * G_ROW, ms.size() > 7 ? 210 : 224, 12, m.getString("Name") + " · " + rankName(m.getInt("Rank")) + (m.getBoolean("On") ? " · en ligne" : ""), Btn.DARK,
+                            () -> { memberSelId = id; confirm = ""; rebuildWidgets(); }).selected(id.equals(memberSelId));
+                }
+                gangScroll(374, 100, 7, G_ROW, ms.size(), () -> gSubOff, v -> gSubOff = v);
+                CompoundTag sel = null;
+                for (CompoundTag m : ms) if (m.getString("Id").equals(memberSelId)) sel = m;
+                boolean can = edit && sel != null && sel.getInt("Rank") != 0;
+                UUID selId = sel == null ? null : UUID.fromString(sel.getString("Id"));
+                int selRank = sel == null ? 2 : sel.getInt("Rank");
+                btn(160, 196, 72, 13, "Nommer chef", Btn.CYAN, () -> confirmThen("chef", () -> send("gangs.gang.setChef", selId, gangSelId, "", 0))).enabled(can).selected(confirm.equals("chef"));
+                btn(236, 196, 74, 13, selRank == 1 ? "→ Membre" : "→ Lieutenant", Btn.DARK, () -> send("gangs.gang.setRank", selId, gangSelId, selRank == 1 ? "membre" : "lieutenant", 0)).enabled(can);
+                btn(314, 196, 66, 13, "Retirer", Btn.RED, () -> confirmThen("rm", () -> send("gangs.gang.removeMember", selId, gangSelId, "", 0))).enabled(can).selected(confirm.equals("rm"));
+            }
+            case 1 -> {
+                box("gAmt", 160, 84, 54, "€", 12);
+                box("gMotif", 218, 84, 110, "Motif", 40);
+                btn(160, 101, 72, 13, "Créditer", Btn.GREEN, () -> {
+                    long c = gCents(in("gAmt"));
+                    if (c < 1) { gangFail("Montant invalide (en euros, ex. 25 ou 12,50)."); return; }
+                    send("gangs.gang.credit", null, gangSelId, in("gMotif"), c);
+                }).enabled(edit);
+                btn(236, 101, 72, 13, "Débiter", Btn.RED, () -> confirmThen("debit", () -> {
+                    long c = gCents(in("gAmt"));
+                    if (c < 1) { gangFail("Montant invalide (en euros, ex. 25 ou 12,50)."); return; }
+                    send("gangs.gang.debit", null, gangSelId, in("gMotif"), c);
+                })).enabled(edit).selected(confirm.equals("debit"));
+                box("gPct", 160, 138, 40, "%", 3);
+                btn(204, 137, 120, 14, "Régler la part des revenus", Btn.CYAN, () -> {
+                    try {
+                        send("gangs.gang.incomePct", null, gangSelId, "", Integer.parseInt(in("gPct")));
+                    } catch (NumberFormatException e) {
+                        gangFail("Part des revenus : un nombre entier de 0 à 300.");
+                    }
+                }).enabled(edit);
+                List<CompoundTag> tx = tags(d, "Tx");
+                gSubOff = clamp(gSubOff, tx.size() - 5);
+                gangScroll(374, 167, 5, 10, tx.size(), () -> gSubOff, v -> gSubOff = v);
+            }
+            default -> {
+                boolean has = tags(d, "Factories").size() > 0;
+                btn(160, 196, 170, 13, "Vider la fabrique (stock au sol)", Btn.RED, () -> confirmThen("clear", () -> send("gangs.factory.clear", null, gangSelId, "", 1)))
+                        .enabled(edit && has).selected(confirm.equals("clear"));
+            }
+        }
+    }
+
+    private void initGangTerr() {
+        List<CompoundTag> all = tags(gangs, "Terr");
+        tListOff = clamp(tListOff, all.size() - G_ROWS);
+        for (int r = 0; r < G_ROWS; r++) {
+            int i = tListOff + r;
+            if (i >= all.size()) break;
+            CompoundTag t = all.get(i);
+            String name = t.getString("Name");
+            btn(8, 52 + r * G_ROW, all.size() > G_ROWS ? 230 : 244, 12, name + " · " + (t.getString("HolderTag").isEmpty() ? "libre" : "[" + t.getString("HolderTag") + "]") + " · " + eur(t.getLong("Income")) + (t.getBoolean("Custom") ? "*" : ""),
+                    Btn.DARK, () -> {
+                        terrSel = name;
+                        confirm = "";
+                        inputs.put("tIncome", t.getBoolean("Custom") ? eurPlain(t.getLong("Income")) : "");
+                        rebuildWidgets();
+                    }).selected(name.equals(terrSel));
+        }
+        gangScroll(240, 52, G_ROWS, G_ROW, all.size(), () -> tListOff, v -> tListOff = v);
+        boolean edit = has("GANGS_EDIT");
+        boolean has = !terrSel.isEmpty();
+        btn(258, 92, 64, 13, "Libérer", Btn.DARK, () -> send("gangs.terr.free", null, terrSel, "", 0)).enabled(edit && has);
+        btn(326, 92, 64, 13, "Supprimer", Btn.RED, () -> confirmThen("tdel", () -> send("gangs.terr.delete", null, terrSel, "", 0))).enabled(edit && has).selected(confirm.equals("tdel"));
+        CompoundTag d = gSel();
+        String who = d == null ? "(aucun gang choisi)" : "[" + d.getString("Tag") + "]";
+        btn(258, 106, 132, 13, "Attribuer à " + who, Btn.CYAN, () -> send("gangs.terr.assign", null, terrSel, gangSelId, 0)).enabled(edit && has && d != null);
+        box("tIncome", 258, 131, 66, "€ / défaut", 10);
+        btn(328, 130, 62, 14, "Revenu", Btn.GREEN, () -> send("gangs.terr.income", null, terrSel, in("tIncome").isEmpty() ? "defaut" : in("tIncome"), 0)).enabled(edit && has);
+        box("tName", 258, 168, 132, "Nom du nouveau territoire", 32);
+        box("tRad", 258, 184, 40, "Rayon", 3);
+        btn(302, 183, 88, 14, "Créer ici", Btn.GREEN, () -> {
+            try {
+                send("gangs.terr.create", null, in("tName"), "", Integer.parseInt(in("tRad")));
+            } catch (NumberFormatException e) {
+                gangFail("Rayon : un nombre de blocs (2 à 200).");
+            }
+        }).enabled(edit);
+    }
+
+    private static final int GINV_X = 8, GINV_Y = 62;
+
+    /** Position (x, y) de la case d'inventaire n° slot dans la grille (comme l'inventaire : 3 rangées + barre rapide). */
+    private static int[] gSlotPos(int slot) {
+        int col = slot % 9;
+        int row = slot < 9 ? 3 : slot / 9 - 1;
+        return new int[]{GINV_X + col * 18, GINV_Y + row * 18 + (slot < 9 ? 4 : 0)};
+    }
+
+    private void selectCat(CompoundTag c) {
+        catSel = c.getInt("I");
+        confirm = "";
+        inputs.put("cLabel", c.getString("Label"));
+        inputs.put("cQty", Integer.toString(c.getInt("Qty")));
+        inputs.put("cSec", Integer.toString(c.getInt("Sec")));
+        inputs.put("cEur", eurPlain(c.getLong("Cents")));
+        inputs.put("cNeeds", c.getString("Needs"));
+        inputs.put("cDaily", Integer.toString(c.getInt("Daily")));
+        inputs.put("cOn", c.getBoolean("On") ? "1" : "0");
+        rebuildWidgets();
+    }
+
+    private void initGangCat() {
+        boolean edit = has("GANGS_EDIT");
+        // grille d'inventaire : un clic sur une case envoie SEULEMENT le numéro de la case ; le serveur lit l'objet réel de l'admin
+        for (int slot = 0; slot < 36; slot++) {
+            int[] p = gSlotPos(slot);
+            int sl = slot;
+            btn(p[0], p[1], 18, 18, "", Btn.GHOST, () -> send("gangs.cat.addSlot", null, "", "", sl)).enabled(edit);
+        }
+        List<CompoundTag> cat = tags(gangs, "Cat");
+        cListOff = clamp(cListOff, cat.size() - G_ROWS);
+        for (int r = 0; r < G_ROWS; r++) {
+            int i = cListOff + r;
+            if (i >= cat.size()) break;
+            CompoundTag c = cat.get(i);
+            btn(176, 50 + r * G_ROW, cat.size() > G_ROWS ? 198 : 212, 12,
+                    (c.getBoolean("On") ? "" : "✖ ") + c.getString("Label") + " · ×" + c.getInt("Qty") + " · " + clock(c.getInt("Sec")) + " · " + eur(c.getLong("Cents")),
+                    Btn.DARK, () -> selectCat(c)).selected(c.getInt("I") == catSel);
+        }
+        gangScroll(376, 50, G_ROWS, G_ROW, cat.size(), () -> cListOff, v -> cListOff = v);
+        boolean has = catSel >= 0 && catSel < cat.size();
+        box("cLabel", 8, 152, 162, "Libellé", 32);
+        box("cQty", 8, 167, 30, "Qté", 3);
+        box("cSec", 42, 167, 38, "Sec", 5);
+        box("cEur", 84, 167, 46, "€", 9);
+        box("cDaily", 134, 167, 36, "/jour", 4);
+        box("cNeeds", 8, 182, 162, "besoins : acier:5;poudre:1", 60);
+        boolean on = "1".equals(inputs.getOrDefault("cOn", "1"));
+        btn(8, 197, 76, 13, on ? "Active : OUI" : "Active : NON", on ? Btn.GREEN : Btn.DARK, () -> {
+            inputs.put("cOn", on ? "0" : "1");
+            rebuildWidgets();
+        }).enabled(edit && has);
+        btn(88, 197, 20, 13, "↑", Btn.DARK, () -> send("gangs.cat.move", null, Integer.toString(catSel), "", -1)).enabled(edit && has && catSel > 0);
+        btn(112, 197, 20, 13, "↓", Btn.DARK, () -> send("gangs.cat.move", null, Integer.toString(catSel), "", 1)).enabled(edit && has && catSel < cat.size() - 1);
+        btn(136, 197, 34, 13, "Retirer", Btn.RED, () -> confirmThen("crm", () -> send("gangs.cat.remove", null, Integer.toString(catSel), "", 1))).enabled(edit && has).selected(confirm.equals("crm"));
+        btn(8, 212, 162, 13, "Enregistrer l'entrée", Btn.GREEN, () -> send("gangs.cat.set", null, Integer.toString(catSel),
+                in("cLabel") + "|" + in("cQty") + "|" + in("cSec") + "|" + in("cEur") + "|" + in("cNeeds") + "|" + (in("cDaily").isEmpty() ? "0" : in("cDaily")) + "|" + (on ? "1" : "0"), 0))
+                .enabled(edit && has);
+    }
+
+    @Nullable
+    private Object renderGangs(GuiGraphics g, int mx, int my) {
+        if (gangs == null) {
+            text(g, "Chargement…", 8, 54, DIM);
+            return null;
+        }
+        switch (gangPage) {
+            case 0 -> renderGangList(g);
+            case 1 -> renderGangTerr(g);
+            default -> {
+                return renderGangCat(g, mx, my);
+            }
+        }
+        return null;
+    }
+
+    private void renderGangList(GuiGraphics g) {
+        List<CompoundTag> all = tags(gangs, "Gangs");
+        panel(g, 6, 50, 144, G_ROWS * G_ROW + 3);
+        if (all.isEmpty()) text(g, "Aucun gang.", 12, 56, DIM);
+        panel(g, 154, 50, 238, 174);
+        if (gangCreate) {
+            text(g, "NOUVEAU GANG", 160, 53, WARN);
+            text(g, "Nom (3-20), tag (2-4), couleur (rouge, bleu… ou #RRGGBB).", 160, 124, DIM);
+            text(g, "Le chef est choisi par son nom ; il ne doit pas déjà avoir un gang.", 160, 134, DIM);
+            text(g, "Créé sans frais ni délai (décision admin).", 160, 144, DIM);
+            return;
+        }
+        CompoundTag d = gSel();
+        if (d == null) {
+            text(g, "Choisis un gang dans la liste, ou crées-en un.", 160, 56, DIM);
+            return;
+        }
+        Btn.rfill(g, left + 158, top + 53, left + 166, top + 61, 3, 0xFF000000 | d.getInt("Color"));
+        textFit(g, d.getString("Name") + "  [" + d.getString("Tag") + "]", 170, 53, 140, WHITE);
+        switch (gangSection) {
+            case 0 -> {
+                text(g, tags(d, "Members").size() + " membre(s) · clique un membre pour agir sur lui :", 160, 87 + 0, DIM);
+            }
+            case 1 -> {
+                textFit(g, "Solde : " + eur(d.getLong("Balance")) + " · dépenses : " + (d.getInt("Spend") == 0 ? "le chef seul" : "chef + lieutenants"), 160, 118, 228, TEXT);
+                text(g, "Part des revenus de zones (%) · 100 = normal :", 160, 128, DIM);
+                text(g, "HISTORIQUE DU COMPTE", 160, 156, WARN);
+                List<CompoundTag> tx = tags(d, "Tx");
+                if (tx.isEmpty()) text(g, "Aucun mouvement.", 160, 167, DIM);
+                for (int r = 0; r < 5; r++) {
+                    int i = gSubOff + r;
+                    if (i >= tx.size()) break;
+                    CompoundTag t = tx.get(i);
+                    long dl = t.getLong("Delta");
+                    int y = 167 + r * 10;
+                    textFit(g, t.getString("When"), 160, y, 44, DIM);
+                    textFit(g, (dl >= 0 ? "+" : "") + eur(dl), 206, y, 58, dl >= 0 ? OK : BAD);
+                    textFit(g, t.getString("Who") + " - " + t.getString("Label"), 266, y, 106, TEXT);
+                }
+            }
+            default -> {
+                List<CompoundTag> zs = tags(d, "Zones");
+                text(g, "Zones tenues (" + zs.size() + ") :", 160, 87, WARN);
+                for (int i = 0; i < Math.min(5, zs.size()); i++) {
+                    CompoundTag z = zs.get(i);
+                    textFit(g, z.getString("Name") + " · " + eur(z.getLong("Income")) + (z.getString("Status").isEmpty() ? "" : " · " + z.getString("Status")), 164, 97 + i * 10, 224, TEXT);
+                }
+                if (zs.size() > 5) text(g, "… et " + (zs.size() - 5) + " autre(s)", 164, 147, DIM);
+                List<CompoundTag> fs = tags(d, "Factories");
+                text(g, "Fabriques (" + fs.size() + ") :", 160, 158, WARN);
+                for (int i = 0; i < Math.min(3, fs.size()); i++) {
+                    CompoundTag f = fs.get(i);
+                    textFit(g, f.getInt("X") + " " + f.getInt("Y") + " " + f.getInt("Z") + " · " + f.getString("Zone") + " · prêt " + f.getInt("Stock") + " · file " + f.getInt("Queue") + " · matières " + f.getInt("Mats"), 164, 168 + i * 9, 224, TEXT);
+                }
+            }
+        }
+    }
+
+    private void renderGangTerr(GuiGraphics g) {
+        List<CompoundTag> all = tags(gangs, "Terr");
+        panel(g, 6, 50, 248, G_ROWS * G_ROW + 3);
+        if (all.isEmpty()) text(g, "Aucun territoire : crée-en un à droite (autour de toi).", 12, 56, DIM);
+        panel(g, 256, 50, 136, 174);
+        CompoundTag sel = null;
+        for (CompoundTag t : all) if (t.getString("Name").equals(terrSel)) sel = t;
+        if (sel == null) {
+            text(g, "Choisis un territoire.", 262, 54, DIM);
+        } else {
+            textFit(g, sel.getString("Name"), 262, 54, 126, WHITE);
+            textFit(g, sel.getString("HolderTag").isEmpty() ? "Libre" : "Tenu par " + sel.getString("HolderName"), 262, 65, 126, TEXT);
+            textFit(g, sel.getString("Status").isEmpty() ? "Aucune capture en cours" : sel.getString("Status"), 262, 76, 126, DIM);
+        }
+        text(g, "Revenu (€ par versement, * = propre) :", 262, 121, DIM);
+        text(g, "NOUVEAU TERRITOIRE autour de toi :", 262, 156, WARN);
+    }
+
+    @Nullable
+    private Object renderGangCat(GuiGraphics g, int mx, int my) {
+        textFit(g, "Prends un objet DANS TON INVENTAIRE : clique sa case.", 8, 50, 166, WARN);
+        panel(g, 6, 58, 168, 82);
+        ItemStack tip = null;
+        for (int slot = 0; slot < 36; slot++) {
+            int[] p = gSlotPos(slot);
+            Btn.rfill(g, left + p[0], top + p[1], left + p[0] + 18, top + p[1] + 18, 3, 0xFF1B1458);
+            ItemStack st = minecraft == null || minecraft.player == null ? ItemStack.EMPTY : minecraft.player.getInventory().getItem(slot);
+            if (!st.isEmpty()) {
+                g.renderItem(st, left + p[0] + 1, top + p[1] + 1);
+                g.renderItemDecorations(font, st, left + p[0] + 1, top + p[1] + 1);
+                if (inRow(mx, my, p[0], p[1], 18, 18)) tip = st;
+            }
+        }
+        List<CompoundTag> cat = tags(gangs, "Cat");
+        panel(g, 174, 48, 218, G_ROWS * G_ROW + 3);
+        if (cat.isEmpty()) text(g, "Catalogue vide : clique un objet de ton inventaire.", 180, 54, DIM);
+        CompoundTag sel = null;
+        for (CompoundTag c : cat) if (c.getInt("I") == catSel) sel = c;
+        if (sel == null) {
+            text(g, "Choisis une entrée à régler dans la liste →", 8, 142, DIM);
+        } else {
+            textFit(g, sel.getString("Spec"), 8, 142, 162, DIM);
+        }
+        return tip;
+    }
+
+
     // ================================================================== onglets Vol et Secours (réglages en direct)
 
     private static final int CF_ROW = 18, CF_ROWS = 8, CF_W = 368;
@@ -1729,6 +2168,12 @@ public class AdminScreen extends Screen {
                 }
             }
             case VOL, SEC -> cfgOffset = clamp(cfgOffset + d, cfgMax);
+            case GANGS -> {
+                if (gangPage == 0 && rx < 150) gListOff = clamp(gListOff + d, tags(gangs, "Gangs").size() - G_ROWS);
+                else if (gangPage == 0) gSubOff = clamp(gSubOff + d, 60);
+                else if (gangPage == 1) tListOff = clamp(tListOff + d, tags(gangs, "Terr").size() - G_ROWS);
+                else if (rx >= 170) cListOff = clamp(cListOff + d, tags(gangs, "Cat").size() - G_ROWS);
+            }
             case LOGS -> logOffset = clamp(logOffset + d * 3, filteredLogs().size() - LOG_ROWS);
         }
         rebuildWidgets();
@@ -1963,6 +2408,11 @@ public class AdminScreen extends Screen {
             case STAFF -> renderStaff(g, mx, my);
             case ETAT -> renderEtat(g);
             case PROPS -> textTip = renderProps(g, mx, my);
+            case GANGS -> {
+                Object o = renderGangs(g, mx, my);
+                if (o instanceof ItemStack st) tip = st;
+                else if (o instanceof String str) textTip = str;
+            }
             case VOL -> renderVol(g);
             case SEC -> renderSecours(g);
             case LOGS -> textTip = renderLogs(g, mx, my);

@@ -42,6 +42,17 @@ public final class Mods {
         return ModList.get().isLoaded("minenorthvol");
     }
 
+    /** Gestion admin des gangs : le mod Portes doit être là ET assez récent pour offrir l'API des gangs. */
+    public static boolean gangs() {
+        if (!ModList.get().isLoaded("minenorthportes")) return false;
+        try {
+            Class.forName("fr.minenorth.portes.api.GangAdminApi", false, Mods.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
     public static boolean portes() {
         return ModList.get().isLoaded("minenorthportes");
     }

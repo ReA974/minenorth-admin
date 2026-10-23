@@ -168,6 +168,16 @@ public class StaffData extends SavedData {
             }
             d.setDirty();
         }
+        // migration : permissions Gangs données une fois aux rôles qui gèrent le staff (Gérant)
+        if (!tag.getBoolean("MigrGangs")) {
+            for (Role r : d.roles.values()) {
+                if (r.perms.contains(Perm.STAFF)) {
+                    r.perms.add(Perm.GANGS_VIEW);
+                    r.perms.add(Perm.GANGS_EDIT);
+                }
+            }
+            d.setDirty();
+        }
         return d;
     }
 
@@ -179,6 +189,7 @@ public class StaffData extends SavedData {
         tag.putBoolean("MigrGrades", true);
         tag.putBoolean("MigrEtat", true);
         tag.putBoolean("MigrProps", true);
+        tag.putBoolean("MigrGangs", true);
         tag.putBoolean("MigrVolSecours", true);
         ListTag rl = new ListTag();
         for (Role r : roles.values()) rl.add(r.save());

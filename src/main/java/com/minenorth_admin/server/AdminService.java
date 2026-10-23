@@ -75,6 +75,13 @@ public final class AdminService {
                     }
                     PropertiesModule.handle(actor, acc, m);
                 }
+                case "gangs" -> {
+                    if (!acc.has(Perm.GANGS_VIEW) || !Mods.gangs()) {
+                        deny(actor);
+                        return;
+                    }
+                    GangsModule.handle(actor, acc, m);
+                }
                 case "vol" -> {
                     if (!acc.has(Perm.VOL_ADMIN) || !Mods.vol()) {
                         deny(actor);
@@ -179,6 +186,7 @@ public final class AdminService {
         t.putBoolean("Etat", Mods.etat());
         t.putBoolean("Entreprises", Mods.entreprises());
         t.putBoolean("Portes", Mods.portes());
+        t.putBoolean("Gangs", Mods.gangs());
         t.putBoolean("Vol", Mods.vol());
         t.putBoolean("SecoursCfg", Mods.secours());
         t.putBoolean("StaffMode", StaffMode.is(actor));
