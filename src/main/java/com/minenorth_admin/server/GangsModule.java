@@ -170,6 +170,16 @@ final class GangsModule {
             }
         }
         t.put("Mats", mats);
+
+        CompoundTag set = new CompoundTag();
+        List<String> sl = lines("settings", SRV, s);
+        if (sl != null) {
+            for (String line : sl) {
+                String[] p = f(line);
+                if (p.length >= 2) set.putString(p[0], p[1]);
+            }
+        }
+        t.put("Set", set);
         Net.send(actor, new Net.View("gangs", t, msg, ok));
     }
 
@@ -215,7 +225,7 @@ final class GangsModule {
                 logTarget = Players.display(actor.server, t);
             }
             case "gang.dissolve", "gang.credit", "gang.debit", "gang.incomePct", "factory.clear", "terr.create", "terr.delete", "terr.free", "terr.assign", "terr.income",
-                    "cat.addSlot", "cat.set", "cat.remove", "cat.move" -> { }
+                    "cat.addSlot", "cat.set", "cat.remove", "cat.move", "set.income", "set.factory", "mat.set", "mat.remove" -> { }
             default -> { sendView(actor, "Action inconnue.", false); return; }
         }
         if (sub.startsWith("gang.") || sub.equals("factory.clear")) {

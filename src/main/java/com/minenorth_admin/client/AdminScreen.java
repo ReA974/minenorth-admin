@@ -1371,6 +1371,7 @@ public class AdminScreen extends Screen {
     // ================================================================== onglet Gangs (mod Portes, API par réflexion)
 
     @Nullable private CompoundTag gangs;
+    private int mListOff;
     private int gangPage, gangSection, gListOff, gSubOff, tListOff, cListOff, catSel = -1;
     private boolean gangCreate;
     private String gangSelId = "", terrSel = "", memberSelId = "";
@@ -1433,6 +1434,7 @@ public class AdminScreen extends Screen {
 
     private void gangsReceived(CompoundTag d) {
         gangs = d;
+        seedGangInputs(d);
         if (d.contains("Sel")) gangSelId = d.getCompound("Sel").getString("Id");
         else if (!gangSelId.isEmpty()) gangSelId = "";
         int cats = d.getList("Cat", Tag.TAG_COMPOUND).size();
@@ -1451,7 +1453,7 @@ public class AdminScreen extends Screen {
     }
 
     private void initGangs() {
-        cfgPages(new String[]{"Gangs", "Territoires", "Catalogue"}, gangPage, i -> {
+        cfgPages(new String[]{"Gangs", "Territoires", "Catalogue", "Réglages", "Matières"}, gangPage, i -> {
             gangPage = i;
             gangCreate = false;
         });
@@ -1459,8 +1461,103 @@ public class AdminScreen extends Screen {
         switch (gangPage) {
             case 0 -> initGangList();
             case 1 -> initGangTerr();
-            default -> initGangCat();
+            case 2 -> initGangCat();
+            case 3 -> initGangSettings();
+            default -> initGangMats();
         }
+    }
+
+    /** Page Réglages : revenus des zones par défaut et fabrique d'armes (tout est revérifié par le serveur). */
+    private void initGangSettings() {
+        boolean edit = has("GANGS_EDIT");
+        box("sIncZone", 8, 74, 60, "20", 6);
+        box("sIncCap", 78, 74, 60, "120", 7);
+        box("sIncMin", 148, 74, 50, "10", 4);
+        boolean online = "1".equals(inputs.getOrDefault("sOnline", "0"));
+        btn(206, 73, 186, 14, "Seulement si un membre est en ligne : " + (online ? "OUI" : "NON"), Btn.DARK, () -> {
+            inputs.put("sOnline", online ? "0" : "1");
+            rebuildWidgets();
+        }).enabled(edit);
+        String dest = inputs.getOrDefault("sDest", "gang");
+        btn(8, 92, 188, 14, "Revenu versé sur : " + (dest.equals("gang") ? "COMPTE DU GANG" : "COMPTE DU CHEF"), Btn.DARK, () -> {
+            inputs.put("sDest", dest.equals("gang") ? "chef" : "gang");
+            rebuildWidgets();
+        }).enabled(edit);
+        btn(200, 92, 192, 14, "Enregistrer les revenus", Btn.GREEN, () ->
+                send("gangs.set.income", null, in("sIncZone") + ";" + in("sIncCap") + ";" + in("sIncMin") + ";" + dest, online ? "1" : "0", 0)).enabled(edit);
+
+        box("sFacMax", 8, 138, 44, "1", 2);
+        box("sFacStock", 62, 138, 44, "10", 3);
+        box("sFacQueue", 116, 138, 44, "5", 2);
+        box("sFacMat", 170, 138, 54, "200", 6);
+        boolean on = "1".equals(inputs.getOrDefault("sFacOn", "1"));
+        btn(232, 137, 160, 14, "Fabrique activée : " + (on ? "OUI" : "NON"), on ? Btn.GREEN : Btn.DARK, () -> {
+            inputs.put("sFacOn", on ? "0" : "1");
+            rebuildWidgets();
+        }).enabled(edit);
+        String rank = inputs.getOrDefault("sFacRank", "lieutenant");
+        btn(8, 156, 188, 14, "Récupérer le stock dès : " + rank, Btn.DARK, () -> {
+            inputs.put("sFacRank", rank.equals("membre") ? "lieutenant" : rank.equals("lieutenant") ? "chef" : "membre");
+            rebuildWidgets();
+        }).enabled(edit);
+        btn(200, 156, 192, 14, "Enregistrer la fabrique", Btn.GREEN, () ->
+                send("gangs.set.factory", null, (on ? "1" : "0") + ";" + in("sFacMax") + ";" + in("sFacStock") + ";" + in("sFacQueue") + ";" + rank + ";" + in("sFacMat"), "", 0)).enabled(edit);
+    }
+
+    private static final int M_ROWS = 9, M_ROW = 15;
+
+    /** Page Matières : matières premières vendues dans la fabrique (libellé | identifiant | quantité par achat | prix). */
+    private void initGangMats() {
+        boolean edit = has("GANGS_EDIT");
+        int total = tags(gangs, "Mats").size() + 1;
+        mListOff = clamp(mListOff, total - M_ROWS);
+        for (int r = 0; r < M_ROWS; r++) {
+            int i = mListOff + r;
+            if (i >= total) break;
+            boolean isNew = i == total - 1;
+            int y = 70 + r * M_ROW;
+            box("mL" + i, 8, y, 96, "Libellé", 24);
+            EditBox id = box("mI" + i, 108, y, 70, "identifiant", 16);
+            if (!isNew) id.setEditable(false);
+            box("mQ" + i, 182, y, 32, "Qté", 4);
+            box("mE" + i, 218, y, 46, "€", 9);
+            int idx = isNew ? -1 : i;
+            btn(268, y, 36, 14, isNew ? "Ajout" : "OK", Btn.GREEN, () ->
+                    send("gangs.mat.set", null, Integer.toString(idx), in("mL" + i) + "|" + in("mI" + i) + "|" + in("mQ" + i) + "|" + in("mE" + i), 0)).enabled(edit);
+            if (!isNew) btn(308, y, 50, 14, "Suppr.", Btn.RED, () -> confirmThen("mrm" + i, () -> send("gangs.mat.remove", null, Integer.toString(i), "", 1)))
+                    .enabled(edit).selected(confirm.equals("mrm" + i));
+        }
+        gangScroll(376, 70, M_ROWS, M_ROW, total, () -> mListOff, v -> mListOff = v);
+    }
+
+    /** Recopie les réglages reçus du serveur dans les champs de saisie des pages Réglages et Matières. */
+    private void seedGangInputs(CompoundTag d) {
+        CompoundTag s = d.getCompound("Set");
+        inputs.put("sIncZone", s.getString("incZone"));
+        inputs.put("sIncCap", s.getString("incCap"));
+        inputs.put("sIncMin", s.getString("incMin"));
+        inputs.put("sOnline", s.getString("incOnline"));
+        inputs.put("sDest", s.getString("incDest").isEmpty() ? "gang" : s.getString("incDest"));
+        inputs.put("sFacOn", s.getString("facOn"));
+        inputs.put("sFacMax", s.getString("facMax"));
+        inputs.put("sFacStock", s.getString("facStock"));
+        inputs.put("sFacQueue", s.getString("facQueue"));
+        inputs.put("sFacMat", s.getString("facMat"));
+        inputs.put("sFacRank", s.getString("facRank").isEmpty() ? "lieutenant" : s.getString("facRank"));
+        List<CompoundTag> ms = tags(d, "Mats");
+        inputs.keySet().removeIf(k -> k.length() > 2 && k.charAt(0) == 'm' && "LIQE".indexOf(k.charAt(1)) >= 0 && Character.isDigit(k.charAt(2)));
+        for (int i = 0; i < ms.size(); i++) {
+            CompoundTag m = ms.get(i);
+            inputs.put("mL" + i, m.getString("Label"));
+            inputs.put("mI" + i, m.getString("Id"));
+            inputs.put("mQ" + i, Integer.toString(m.getInt("Pack")));
+            inputs.put("mE" + i, eurPlain(m.getLong("Cents")));
+        }
+        int n = ms.size();
+        inputs.put("mL" + n, "");
+        inputs.put("mI" + n, "");
+        inputs.put("mQ" + n, "10");
+        inputs.put("mE" + n, "0");
     }
 
     private void initGangList() {
@@ -1679,11 +1776,32 @@ public class AdminScreen extends Screen {
         switch (gangPage) {
             case 0 -> renderGangList(g);
             case 1 -> renderGangTerr(g);
-            default -> {
+            case 2 -> {
                 return renderGangCat(g, mx, my);
             }
+            case 3 -> renderGangSettings(g);
+            default -> renderGangMats(g);
         }
         return null;
+    }
+
+    private void renderGangSettings(GuiGraphics g) {
+        text(g, "REVENUS DES ZONES (par défaut ; chaque zone a son réglage dans Territoires)", 8, 50, WARN);
+        text(g, "Revenu / zone (€)", 8, 63, DIM);
+        text(g, "Plafond / h (€)", 78, 63, DIM);
+        text(g, "Toutes les (min)", 148, 63, DIM);
+        text(g, "FABRIQUE D'ARMES (avantage des zones contrôlées)", 8, 112, WARN);
+        text(g, "Par gang", 8, 127, DIM);
+        text(g, "Stock max", 62, 127, DIM);
+        text(g, "File max", 116, 127, DIM);
+        text(g, "Réserve/mat.", 170, 127, DIM);
+        text(g, "Les recettes se règlent dans Catalogue, les matières dans Matières.", 8, 180, DIM);
+        text(g, "Les montants s'appliquent au prochain versement.", 8, 190, DIM);
+    }
+
+    private void renderGangMats(GuiGraphics g) {
+        text(g, "MATIÈRES : libellé · identifiant · quantité par achat · prix d'un achat (€)", 8, 50, WARN);
+        text(g, "Identifiant (a-z, 0-9, _) utilisé dans les besoins du Catalogue ; fixe une fois créé.", 8, 59, DIM);
     }
 
     private void renderGangList(GuiGraphics g) {
