@@ -34,6 +34,10 @@ public class MineNorthAdmin {
         }
         MinecraftForge.EVENT_BUS.register(this);
         MinecraftForge.EVENT_BUS.register(new com.minenorth_admin.server.StaffMode());
+        fr.minenorth.api.MineNorth.provide(fr.minenorth.api.StaffService.class, new fr.minenorth.api.StaffService() {
+            @Override public net.minecraft.network.chat.Component dutyTag(net.minecraft.server.level.ServerPlayer p) { return com.minenorth_admin.server.StaffMode.dutyTag(p); }
+            @Override public boolean keepGradePrefix() { return com.minenorth_admin.server.StaffMode.keepVipPrefix(); }
+        });
     }
 
     private void commonSetup(FMLCommonSetupEvent e) {

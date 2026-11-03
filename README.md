@@ -40,7 +40,7 @@ ou le pseudo.
 - **Supprimer un joueur** (bouton rouge dans sa fiche, double clic, joueur déconnecté) : efface TOUTES ses données —
   fichiers du monde (inventaire, ender chest, position, succès, stats), compte bancaire et prêts, permis, garage et
   fourrière, grade police, rôle staff. S'il revient, il repart de zéro. Permission « Supprimer un joueur » (propriétaire et Gérant par défaut).
-- **Staff** : rôles (nom, rang, permissions) et membres. Invisible pour les joueurs : `/mnadmin` n'existe même pas pour eux.
+- **Staff** : rôles (nom, rang, permissions) et membres. `/mnadmin` n'existe même pas pour les joueurs ; le rôle n'est visible qu'en mode staff (ci-dessous).
 - **Journal** : toutes les actions, aussi écrites dans `logs/minenorth_admin.log`.
 
 ## Rôles et rangs
@@ -49,9 +49,21 @@ ou le pseudo.
 - On ne gère que les rôles et membres de **rang inférieur** au sien, on ne donne que les permissions qu'on a,
   et on ne peut pas agir sur un staff de rang supérieur ou égal.
 
+## Mode staff
+Bouton du panneau (permission « Mode staff ») : invisible (retiré de l'écran des autres joueurs) + créatif ; on en ressort par le même bouton
+(mode de jeu d'avant restauré). Tant qu'il est actif, le **rôle** s'affiche devant le nom dans le **chat** et la **liste des joueurs (TAB)** :
+« [Admin] Prénom Nom ». Rôle = celui de l'onglet Staff, « Propriétaire » pour l'op sans rôle, « Staff » si le rôle a été supprimé.
+Hors mode staff, le joueur redevient un citoyen normal (nom RP, préfixe VIP, cagoule).
+L'étiquette est fournie par l'API (`StaffService`, `StaffMode.dutyTag`) et placée par le mod Identité, qui compose seul le nom :
+elle passe **avant la cagoule** et **remplace le préfixe VIP** (réglable). Nom recalculé à l'entrée / sortie et toutes les 10 s (changement de rôle).
+Pas de tri en haut du TAB : le client ne trie que par équipe de scoreboard puis par pseudo, et les équipes entreraient en conflit avec les plugins.
+
 ## Config
-`world/serverconfig/minenorth_admin-server.toml` : niveau d'op propriétaire, taille du journal, fichier de log,
-prévenir le joueur quand le staff modifie sa banque / ses permis.
+`config/minenorth_admin-server.toml` (serveur dédié) : niveau d'op propriétaire, taille du journal, fichier de log,
+prévenir le joueur quand le staff modifie sa banque / ses permis, et section `[modeStaff]` :
+`afficherRole` (vrai), `format` (`[%s]`), `couleurParDefaut` (`#FF5555`), `roles` (une ligne par rôle :
+`"Nom du rôle;Libellé affiché;Couleur"`, par défaut Propriétaire → Fondateur rouge foncé, Gérant violet, Admin rouge, Modérateur → Modo cyan,
+Helper vert), `garderPrefixeVip` (faux). Couleur : `#RRGGBB` ou nom Minecraft (`gold`, `aqua`…). Relu à chaque calcul du nom.
 
 ## Licence
 

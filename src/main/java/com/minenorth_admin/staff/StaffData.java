@@ -19,7 +19,7 @@ import java.util.UUID;
 
 /**
  * Rôles staff, membres et journal des actions. Sauvegardé dans world/data/minenorth_admin.dat.
- * Les rôles ne sont visibles nulle part côté joueur : seulement dans le panneau.
+ * Côté joueur, le rôle n'est visible qu'en mode staff (étiquette devant le nom, chat et TAB : voir StaffMode.dutyTag).
  */
 public class StaffData extends SavedData {
     private static final String NAME = "minenorth_admin";

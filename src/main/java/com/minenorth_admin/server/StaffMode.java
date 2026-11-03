@@ -9,7 +9,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
@@ -46,7 +45,7 @@ public final class StaffMode {
             p.setGameMode(prev == GameType.SPECTATOR ? GameType.SURVIVAL : prev);
             d.remove(PREV);
             retrack(p);
-            p.refreshTabListName();
+            refreshNames(p);
             return false;
         }
         GameType cur = p.gameMode.getGameModeForPlayer();
@@ -55,8 +54,14 @@ public final class StaffMode {
         p.setGameMode(GameType.CREATIVE);
         applyVanish(p);
         retrack(p);
-        p.refreshTabListName();
+        refreshNames(p);
         return true;
+    }
+
+    /** Recalcule le nom du chat et du TAB (composés par le mod Identité, qui lit l'étiquette ci-dessous). */
+    private static void refreshNames(ServerPlayer p) {
+        p.refreshDisplayName();
+        p.refreshTabListName();
     }
 
     /** Refait le suivi du joueur par les autres : ils le perdent puis le revoient (ou non, selon le mode), et l'événement ci-dessous décide qui le voit. */
@@ -75,26 +80,54 @@ public final class StaffMode {
         }
     }
 
-    /** Grade affiché dans la liste des joueurs (TAB) en mode staff : le rôle réglé dans le menu admin (onglet Staff), à défaut « Staff ». */
+    /** Rôle du joueur : celui réglé dans le menu admin (onglet Staff), sinon « Propriétaire » pour l'op sans rôle, à défaut « Staff ». */
     public static String gradeOf(ServerPlayer p) {
         var data = com.minenorth_admin.staff.StaffData.get(p.server);
         var m = data.member(p.getUUID());
         var r = m == null ? null : data.role(m.role);
-        return r != null ? r.name : "Staff";
+        if (r != null) return r.name;
+        return com.minenorth_admin.staff.Access.of(p).owner ? "Propriétaire" : "Staff";
     }
 
-    @SubscribeEvent(priority = EventPriority.LOW)
-    public void tabName(PlayerEvent.TabListNameFormat e) {
-        if (!(e.getEntity() instanceof ServerPlayer p) || !is(p)) return;
-        net.minecraft.network.chat.Component base = e.getDisplayName() != null ? e.getDisplayName() : p.getName();
-        e.setDisplayName(net.minecraft.network.chat.Component.literal("§c[" + gradeOf(p) + "] §r").append(base));
+    /**
+     * Étiquette du rôle (StaffService de l'API) : « [Admin] » en couleur, seulement en mode staff. Le mod Identité la place devant le nom,
+     * dans le chat et le TAB ; libellés et couleurs : section [modeStaff] de minenorth_admin-server.toml.
+     */
+    public static net.minecraft.network.chat.Component dutyTag(ServerPlayer p) {
+        if (!is(p)) return null;
+        String role = gradeOf(p), label = role;
+        net.minecraft.network.chat.TextColor color = null;
+        try {
+            if (!com.minenorth_admin.AdminConfig.TAG_ON.get()) return null;
+            for (String line : com.minenorth_admin.AdminConfig.TAG_ROLES.get()) {
+                String[] f = line.split(";", -1);
+                if (!f[0].trim().equalsIgnoreCase(role)) continue;
+                if (f.length > 1 && !f[1].isBlank()) label = f[1].trim();
+                if (f.length > 2) color = net.minecraft.network.chat.TextColor.parseColor(f[2].trim());
+                break;
+            }
+            if (color == null) color = net.minecraft.network.chat.TextColor.parseColor(com.minenorth_admin.AdminConfig.TAG_COLOR.get().trim());
+            label = String.format(com.minenorth_admin.AdminConfig.TAG_FORMAT.get(), label);
+        } catch (IllegalStateException | java.util.IllegalFormatException e) {   // config non chargée (solo) ou format invalide
+            label = "[" + label + "]";
+        }
+        net.minecraft.network.chat.TextColor c = color != null ? color : net.minecraft.network.chat.TextColor.fromRgb(0xFF5555);
+        return net.minecraft.network.chat.Component.literal(label).withStyle(st -> st.withColor(c));
+    }
+
+    public static boolean keepVipPrefix() {
+        try {
+            return com.minenorth_admin.AdminConfig.TAG_KEEP_VIP.get();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     @SubscribeEvent
     public void onTick(TickEvent.PlayerTickEvent e) {
         if (e.phase != TickEvent.Phase.END || !(e.player instanceof ServerPlayer p) || p.tickCount % 40 != 0) return;
         if (is(p) && !p.hasEffect(MobEffects.INVISIBILITY)) applyVanish(p);
-        if (is(p) && p.tickCount % 200 == 0) p.refreshTabListName();     // suit un changement de grade fait dans le menu admin
+        if (is(p) && p.tickCount % 200 == 0) refreshNames(p);     // suit un changement de rôle fait dans le menu admin
     }
 
     @SubscribeEvent
