@@ -73,3 +73,7 @@ inverse (y compris par outils d'intelligence artificielle) et utilisation pour e
 
 ## Terrains à bâtir (04/11)
 Onglet Propriétés : bouton **+ Terrain** (permission `PROPRIETES_EDIT`) : nom, coins X/Z (bouton « ma position »), hauteur, profondeur, prix au m², jours (vide = vente). Requête `props.land`, appel `PropertyAdminApi.createLand` du mod Portes (photo de la zone, région WorldGuard, fiche, repère sur la carte). Nouvelle catégorie **TERRAIN** (grille des catégories sur 5 colonnes) ; sur la fiche d'un terrain, bouton **Prix au m²** (case Prix €, action `landPrice`). Tout est écrit au journal d'audit.
+
+## Staff pour les autres mods (04/11)
+
+- Fournit `StaffService.isStaff` de l'API : un joueur avec un rôle dans l'onglet Staff (en service ou non) est considéré comme staff. Le mod Stats s'en sert pour exclure le staff des statistiques d'argent créé / détruit.

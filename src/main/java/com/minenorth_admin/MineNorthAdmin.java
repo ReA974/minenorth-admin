@@ -37,6 +37,11 @@ public class MineNorthAdmin {
         fr.minenorth.api.MineNorth.provide(fr.minenorth.api.StaffService.class, new fr.minenorth.api.StaffService() {
             @Override public net.minecraft.network.chat.Component dutyTag(net.minecraft.server.level.ServerPlayer p) { return com.minenorth_admin.server.StaffMode.dutyTag(p); }
             @Override public boolean keepGradePrefix() { return com.minenorth_admin.server.StaffMode.keepVipPrefix(); }
+            @Override public boolean isStaff(net.minecraft.server.MinecraftServer s, java.util.UUID player) {
+                com.minenorth_admin.staff.StaffData d = com.minenorth_admin.staff.StaffData.get(s);
+                com.minenorth_admin.staff.StaffData.Member m = d.member(player);
+                return m != null && d.role(m.role) != null;
+            }
         });
     }
 
