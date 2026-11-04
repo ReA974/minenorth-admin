@@ -37,7 +37,7 @@ final class PropertiesModule {
     private static final String[][] CATS = {
             {"HOUSE", "Maison", "MAISON"}, {"APARTMENT", "Appartement", "APPART."}, {"BUSINESS", "Local d'entreprise", "ENTREPRISE"},
             {"LOCAL", "Local", "LOCAL"}, {"SMALL_SHOP", "Petit commerce", "COMMERCE"}, {"STORAGE", "Stockage", "STOCKAGE"},
-            {"GARAGE", "Garage", "GARAGE"}, {"OTHER", "Autres", "AUTRES"}};
+            {"GARAGE", "Garage", "GARAGE"}, {"OTHER", "Autres", "AUTRES"}, {"LAND", "Terrain", "TERRAIN"}};
 
     private static String catLabel(String id) {
         for (String[] c : CATS) if (c[0].equals(id)) return c[1];
@@ -128,6 +128,7 @@ final class PropertiesModule {
         t.putInt("Trusted", (int) num(f[19]));
         t.putBoolean("Occupied", occupied(f));
         t.putBoolean("Rented", "1".equals(f[18]));
+        t.putString("Land", f.length > 20 ? f[20] : "");   // terrain à bâtir : surface|prix m²|hauteur|profondeur|remise à nu|bornes
         return t;
     }
 
@@ -291,6 +292,10 @@ final class PropertiesModule {
             sendList(actor, m.a(), m.b().isEmpty() ? "all" : m.b(), m.n(), player, "", true);
             return;
         }
+        if (action.equals("props.land")) {
+            createLand(actor, acc, m);
+            return;
+        }
         String[] where = m.a().split("\t", 2);
         if (where.length < 2 || where[0].isEmpty() || where[1].isEmpty()) {
             Net.send(actor, new Net.View("message", new CompoundTag(), "Propriété invalide.", false));
@@ -351,6 +356,7 @@ final class PropertiesModule {
             }
             case "unlist" -> { }
             case "category" -> text = m.b().trim();
+            case "landPrice" -> { }
             default -> { return Result.fail("Action inconnue."); }
         }
         // actions destructives : le client envoie n = 1 après la double confirmation
@@ -384,8 +390,46 @@ final class PropertiesModule {
             case "unlist" -> "retire la fiche de vente / location";
             case "price" -> "change le prix : " + eur(n);
             case "category" -> "change la catégorie : " + catLabel(text);
+            case "landPrice" -> "change le prix au m² : " + eur(n);
             default -> sub;
         };
+    }
+
+    /** Nouveau terrain à bâtir : Req.a = dimension TAB nom, Req.b = x1 TAB z1 TAB x2 TAB z2 TAB hauteur TAB profondeur TAB jours (vide = vente), n = prix au m². */
+    private static void createLand(ServerPlayer actor, Access acc, Req m) {
+        Result denied = needEdit(acc);
+        if (denied != null) { Net.send(actor, new Net.View("message", new CompoundTag(), denied.message(), false)); return; }
+        String[] where = m.a().split("\t", 2);
+        String[] p = m.b().split("\t", -1);
+        int[] v = new int[6];
+        try {
+            for (int i = 0; i < 6; i++) v[i] = Integer.parseInt(p[i].trim());
+        } catch (RuntimeException e) {
+            Net.send(actor, new Net.View("message", new CompoundTag(), "Coordonnées, hauteur ou profondeur invalides (nombres entiers).", false));
+            return;
+        }
+        int days = 0;
+        String mode = "SALE";
+        if (p.length > 6 && !p[6].trim().isEmpty()) {
+            try { days = Integer.parseInt(p[6].trim()); } catch (NumberFormatException e) { days = -1; }
+            mode = "RENTAL";
+        }
+        if (where.length < 2) { Net.send(actor, new Net.View("message", new CompoundTag(), "Donne un nom au terrain.", false)); return; }
+        Object r;
+        try {
+            r = call("createLand", new Class<?>[]{MinecraftServer.class, String.class, String.class, int.class, int.class, int.class, int.class, int.class, int.class,
+                    long.class, String.class, int.class, String.class}, actor.server, where[0], where[1], v[0], v[1], v[2], v[3], v[4], v[5], m.n(), mode, days,
+                    actor.getGameProfile().getName());
+        } catch (ReflectiveOperationException | LinkageError e) {
+            Net.send(actor, new Net.View("message", new CompoundTag(), "Mets à jour le mod Portes (création de terrain absente).", false));
+            return;
+        }
+        String res = r instanceof String str ? str : "";
+        int tab = res.indexOf('\t');
+        String msg = tab < 0 ? "Réponse inattendue du mod Portes." : res.substring(tab + 1);
+        if (!res.startsWith("OK")) { Net.send(actor, new Net.View("message", new CompoundTag(), msg, false)); return; }
+        AuditLog.log(actor, where[1], "propriétés", "crée le terrain à bâtir (" + eur(m.n()) + " le m²)");
+        sendDetail(actor, where[0], where[1].trim(), msg, true);
     }
 
     private static String eur(long cents) {

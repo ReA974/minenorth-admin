@@ -52,6 +52,8 @@ public class AdminScreen extends Screen {
     private String propFilter = "all";
     private int propPage, propLogOffset, propsSecSel = -1, propsSecOffset;
     private boolean propLog;
+    /** Formulaire « Nouveau terrain » (onglet Propriétés). */
+    private boolean landForm;
     @Nullable private UUID propPlayer;
     private final Set<String> perms = new HashSet<>();
     private boolean owner;
@@ -180,6 +182,7 @@ public class AdminScreen extends Screen {
             }
             case "prop" -> {
                 prop = d.getBoolean("Gone") ? null : d;
+                if (prop != null) landForm = false;
                 tab = Tab.PROPS;
                 if (prop == null && props == null) send("props.list", propPlayer, "", propFilter, 0);
             }
@@ -1155,19 +1158,30 @@ public class AdminScreen extends Screen {
     }
 
     private void initProps() {
+        if (landForm) {
+            initLandForm();
+            return;
+        }
         if (prop != null) {
             initPropDetail();
             return;
         }
         box("propSearch", 8, 34, 114, "Nom, titulaire, catégorie…", 40);
         btn(125, 34, 52, 14, "Chercher", Btn.CYAN, () -> propList(0));
-        btn(180, 34, 120, 14, "Filtre : " + propFilterLabel(), Btn.DARK, () -> {
+        btn(180, 34, 100, 14, "Filtre : " + propFilterLabel(), Btn.DARK, () -> {
             int i = 0;
             for (int k = 0; k < PROP_FILTERS.length; k++) if (PROP_FILTERS[k][0].equals(propFilter)) i = k;
             propFilter = PROP_FILTERS[(i + 1) % PROP_FILTERS.length][0];
             propList(0);
         });
-        btn(303, 34, 60, 14, "Actualiser", Btn.DARK, () -> propList(propPage));
+        btn(283, 34, 52, 14, "Actualiser", Btn.DARK, () -> propList(propPage));
+        if (propPlayer == null) {
+            btn(338, 34, 54, 14, "+ Terrain", Btn.GREEN, () -> {
+                pushNav();
+                landForm = true;
+                rebuildWidgets();
+            }).enabled(has("PROPRIETES_EDIT"));
+        }
         if (propPlayer != null) {
             btn(366, 34, 26, 14, "✖", Btn.RED, () -> {
                 propPlayer = null;
@@ -1180,8 +1194,59 @@ public class AdminScreen extends Screen {
         btn(37, 210, 26, 12, "►", Btn.DARK, () -> propList(page + 1)).enabled(page + 1 < pages);
     }
 
+    // ------------------------------------------------------------------ nouveau terrain à bâtir
+
+    private void landCorner(String x, String z) {
+        if (minecraft == null || minecraft.player == null) return;
+        inputs.put(x, String.valueOf(minecraft.player.getBlockX()));
+        inputs.put(z, String.valueOf(minecraft.player.getBlockZ()));
+        rebuildWidgets();
+    }
+
+    private void initLandForm() {
+        box("lName", 8, 52, 180, "Nom du terrain (ex. Terrain Colline 3)", 48);
+        box("lX1", 8, 82, 50, "X1", 8);
+        box("lZ1", 61, 82, 50, "Z1", 8);
+        btn(114, 81, 90, 16, "Coin 1 = ma position", Btn.DARK, () -> landCorner("lX1", "lZ1"));
+        box("lX2", 8, 104, 50, "X2", 8);
+        box("lZ2", 61, 104, 50, "Z2", 8);
+        btn(114, 103, 90, 16, "Coin 2 = ma position", Btn.DARK, () -> landCorner("lX2", "lZ2"));
+        box("lHeight", 8, 134, 50, "Hauteur", 3);
+        box("lDepth", 61, 134, 50, "Profondeur", 3);
+        box("lPrice", 8, 164, 103, "Prix au m² (€)", 12);
+        box("lDays", 114, 164, 50, "Jours", 3);
+        btn(8, 192, 120, 16, "Créer le terrain", Btn.GREEN, () -> {
+            long c = cents(in("lPrice"));
+            if (c <= 0) {
+                message = "Prix au m² invalide (ex. 120 ou 85,50).";
+                messageOk = false;
+                rebuildWidgets();
+                return;
+            }
+            String dim = minecraft != null && minecraft.player != null ? minecraft.player.level().dimension().location().toString() : "minecraft:overworld";
+            String b = String.join("\t", in("lX1"), in("lZ1"), in("lX2"), in("lZ2"), in("lHeight").isEmpty() ? "32" : in("lHeight"),
+                    in("lDepth").isEmpty() ? "8" : in("lDepth"), in("lDays"));
+            send("props.land", null, dim + "\t" + in("lName"), b, c);
+        }).enabled(has("PROPRIETES_EDIT"));
+        btn(131, 192, 70, 16, "Annuler", Btn.DARK, () -> {
+            landForm = false;
+            rebuildWidgets();
+        });
+    }
+
+    private String renderLandForm(GuiGraphics g) {
+        drawScaled(g, bold("Nouveau terrain à bâtir"), left + 8, top + 34, 1.2f, 260, WHITE);
+        text(g, "Coins opposés (X, Z) : à un coin, clique « ma position », ou tape-les.", 8, 71, DIM);
+        text(g, "Hauteur au-dessus du sol / profondeur dessous (vide = 32 / 8 blocs).", 8, 124, DIM);
+        text(g, "Jours vide = vente ; sinon location. Prix = surface x prix au m².", 8, 154, DIM);
+        wrap(g, "À la création : photo de la zone (remise à nu à la revente), région WorldGuard du même nom, repère sur la carte tant qu'il est "
+                + "disponible. Ce qui a été construit part au garde-meuble de celui qui l'a posé.", 212, 52, 180, DIM, 8);
+        return null;
+    }
+
     @Nullable
     private String renderProps(GuiGraphics g, int mx, int my) {
+        if (landForm) return renderLandForm(g);
         if (prop != null) return renderPropDetail(g, mx, my);
         panel(g, 8, PR_Y - 1, PR_W, PR_ROWS * PR_ROW + 2);
         if (props == null) {
@@ -1246,12 +1311,13 @@ public class AdminScreen extends Screen {
         btn(187, 137, 80, 16, "Mettre en location", Btn.GREEN, () -> priceAction("rent", in("ppDays"))).enabled(edit);
         btn(270, 137, 64, 16, "Prix fiche", Btn.CYAN, () -> priceAction("price", "")).enabled(edit);
         btn(337, 137, 55, 16, "Ôter fiche", Btn.DARK, () -> propAct("unlist", "", 0)).enabled(edit);
+        if (!it.getString("Land").isEmpty()) btn(238, 190, 154, 14, "Prix au m² (case Prix €)", Btn.CYAN, () -> priceAction("landPrice", "")).enabled(edit);
         // catégorie
         ListTag cats = prop.getList("Cats", Tag.TAG_COMPOUND);
         for (int i = 0; i < cats.size(); i++) {
             CompoundTag c = cats.getCompound(i);
             String id = c.getString("Id");
-            btn(8 + (i % 4) * 64, 158 + (i / 4) * 14, 62, 12, c.getString("Short"), Btn.DARK, () -> propAct("category", id, 0))
+            btn(8 + (i % 5) * 52, 158 + (i / 5) * 14, 50, 12, c.getString("Short"), Btn.DARK, () -> propAct("category", id, 0))
                     .enabled(edit && !id.equals(it.getString("CatId"))).selected(id.equals(it.getString("CatId")));
         }
         btn(270, 158, 122, 12, "Se téléporter sur place", Btn.CYAN, () -> propAct("tp", "", 0)).enabled(has("TELEPORT"));

@@ -70,3 +70,6 @@ Helper vert), `garderPrefixeVip` (faux). Couleur : `#RRGGBB` ou nom Minecraft (`
 **Tous droits réservés - MineNorthRP.** Réutilisation, copie, modification, décompilation / ingénierie
 inverse (y compris par outils d'intelligence artificielle) et utilisation pour entraîner une IA sont
 **interdites** sans autorisation écrite. Voir [LICENSE](LICENSE).
+
+## Terrains à bâtir (04/11)
+Onglet Propriétés : bouton **+ Terrain** (permission `PROPRIETES_EDIT`) : nom, coins X/Z (bouton « ma position »), hauteur, profondeur, prix au m², jours (vide = vente). Requête `props.land`, appel `PropertyAdminApi.createLand` du mod Portes (photo de la zone, région WorldGuard, fiche, repère sur la carte). Nouvelle catégorie **TERRAIN** (grille des catégories sur 5 colonnes) ; sur la fiche d'un terrain, bouton **Prix au m²** (case Prix €, action `landPrice`). Tout est écrit au journal d'audit.
